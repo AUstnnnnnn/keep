@@ -145,7 +145,7 @@ type KeepBackup = {
 
 ## Architecture
 
-Use a static React/Vite app. Keep service boundaries simple:
+Use a dependency-free static PWA. Keep service boundaries simple:
 
 - `storage`: local persistence, import/export, migrations.
 - `tmdb`: movie/TV search and detail mapping.
@@ -153,7 +153,7 @@ Use a static React/Vite app. Keep service boundaries simple:
 - `library`: item add/update/delete/filter logic.
 - UI components for tabs, lists, chips, rating controls, sheets, and empty states.
 
-Storage should start with `localStorage` unless payload size becomes an issue during implementation. Structure storage access behind a small adapter so IndexedDB can replace it later without changing UI code.
+Storage should start with `localStorage` unless payload size becomes an issue during implementation. Structure storage access behind a small adapter so IndexedDB can replace it later without changing UI code. The first version should avoid runtime dependencies so GitHub Pages deployment and offline loading stay simple.
 
 ## Error Handling
 
