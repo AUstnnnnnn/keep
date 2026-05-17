@@ -18,6 +18,8 @@ if (!html.includes('id="app"')) throw new Error("Missing app mount");
 if (!app.includes("KeepStore")) throw new Error("Missing storage module");
 if (!app.includes("api.themoviedb.org")) throw new Error("Missing TMDB integration");
 if (!app.includes("api.jikan.moe")) throw new Error("Missing Jikan integration");
+if (!app.includes("recommendations")) throw new Error("Missing discovery recommendations");
+if (!app.includes("rankResults")) throw new Error("Missing search ranking");
+if (!app.includes("applyTheme")) throw new Error("Missing theme handling");
 
 console.log("Static checks passed");
-

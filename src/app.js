@@ -3,9 +3,12 @@ const SETTINGS_KEY = "keep.settings.v1";
 const TMDB_IMAGE = "https://image.tmdb.org/t/p/w342";
 
 const state = {
-  tab: "queue",
+  tab: "home",
   items: [],
-  settings: { tmdbApiKey: "" },
+  settings: { tmdbApiKey: "", theme: "light" },
+  homeResults: [],
+  homeLoading: false,
+  homeError: "",
   filterStatus: "queued",
   filterType: "all",
   libraryQuery: "",
@@ -25,7 +28,8 @@ const app = $("#app");
 const KeepStore = {
   load() {
     state.items = safeParse(localStorage.getItem(STORAGE_KEY), []);
-    state.settings = { tmdbApiKey: "", ...safeParse(localStorage.getItem(SETTINGS_KEY), {}) };
+    state.settings = { tmdbApiKey: "", theme: "light", ...safeParse(localStorage.getItem(SETTINGS_KEY), {}) };
+    applyTheme();
   },
   saveItems() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.items));
@@ -78,6 +82,7 @@ function normalizeItem(item) {
     year: item.year || "",
     overview: item.overview || "",
     posterUrl: item.posterUrl || "",
+    popularity: Number(item.popularity || 0),
     status: ["queued", "watching", "watched"].includes(item.status) ? item.status : "queued",
     reaction: ["love", "like", "dislike"].includes(item.reaction) ? item.reaction : null,
     notes: item.notes || "",
@@ -100,10 +105,20 @@ const TmdbApi = {
         const response = await fetch(url);
         if (!response.ok) throw new Error("TMDB search failed. Check your API key.");
         const data = await response.json();
-        return (data.results || []).slice(0, 8).map((result) => mapTmdb(result, mediaType));
+        return (data.results || []).slice(0, 14).map((result) => mapTmdb(result, mediaType));
       })
     );
     return chunks.flat();
+  },
+  async recommendations(seed) {
+    const key = state.settings.tmdbApiKey.trim();
+    if (!key) throw new Error("Add a TMDB API key in Settings to build your discovery feed.");
+    const url = new URL(`https://api.themoviedb.org/3/${seed.type}/${seed.sourceId}/recommendations`);
+    url.searchParams.set("api_key", key);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Discovery feed failed. Try again.");
+    const data = await response.json();
+    return (data.results || []).slice(0, 10).map((result) => mapTmdb(result, seed.type));
   }
 };
 
@@ -132,6 +147,7 @@ function mapTmdb(result, type) {
     year: date ? date.slice(0, 4) : "",
     overview: result.overview || "",
     posterUrl: result.poster_path ? `${TMDB_IMAGE}${result.poster_path}` : "",
+    popularity: result.popularity || 0,
     status: "queued"
   });
 }
@@ -147,8 +163,14 @@ function mapJikan(result) {
     year: result.year ? String(result.year) : "",
     overview: result.synopsis || "",
     posterUrl: result.images?.jpg?.image_url || "",
+    popularity: result.popularity || 0,
     status: "queued"
   });
+}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = state.settings.theme === "dark" ? "dark" : "light";
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", state.settings.theme === "dark" ? "#101417" : "#f3f6f7");
 }
 
 function setState(patch) {
@@ -174,6 +196,7 @@ function addOrUpdate(item, patch = {}) {
     state.items = [updated, ...state.items];
     toast("Added to queue");
   }
+  state.homeResults = [];
   KeepStore.saveItems();
   render();
 }
@@ -210,10 +233,11 @@ async function runSearch(event) {
     const searches = [];
     if (state.searchType !== "anime") searches.push(TmdbApi.search(query, state.searchType));
     if (state.searchType === "all" || state.searchType === "anime") searches.push(JikanApi.search(query));
-    const results = (await Promise.allSettled(searches)).flatMap((result) => (result.status === "fulfilled" ? result.value : []));
-    const errors = (await Promise.allSettled(searches)).filter((result) => result.status === "rejected");
+    const settled = await Promise.allSettled(searches);
+    const results = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+    const errors = settled.filter((result) => result.status === "rejected");
     setState({
-      searchResults: results.sort((a, b) => typeRank(a.type) - typeRank(b.type)),
+      searchResults: rankResults(results, query),
       searchError: results.length ? "" : errors[0]?.reason?.message || "No results found.",
       searchLoading: false
     });
@@ -222,8 +246,56 @@ async function runSearch(event) {
   }
 }
 
-function typeRank(type) {
-  return { movie: 0, tv: 1, anime: 2 }[type] ?? 9;
+function rankResults(results, query) {
+  return [...results].sort((a, b) => searchScore(b, query) - searchScore(a, query));
+}
+
+function searchScore(item, query) {
+  const q = normalizeText(query);
+  const title = normalizeText(item.title);
+  const original = normalizeText(item.originalTitle);
+  let score = 0;
+  if (title === q || original === q) score += 1000;
+  if (title.startsWith(q) || original.startsWith(q)) score += 500;
+  if (title.includes(q) || original.includes(q)) score += 200;
+  if (item.type === "tv") score += 18;
+  if (item.type === "movie") score += 10;
+  score += Math.min(Number(item.popularity || 0), 150);
+  return score;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/^the\s+/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+async function refreshHome(force = false) {
+  if (state.homeLoading || (!force && state.homeResults.length)) return;
+  const seeds = state.items.filter((item) => item.source === "tmdb" && (item.type === "movie" || item.type === "tv")).slice(0, 6);
+  if (!seeds.length) {
+    if (state.homeResults.length || state.homeError) setState({ homeResults: [], homeError: "" });
+    return;
+  }
+  setState({ homeLoading: true, homeError: "" });
+  try {
+    const settled = await Promise.allSettled(seeds.map((seed) => TmdbApi.recommendations(seed)));
+    const savedIds = new Set(state.items.map((item) => item.id));
+    const deduped = new Map();
+    settled
+      .flatMap((result) => (result.status === "fulfilled" ? result.value : []))
+      .filter((item) => !savedIds.has(item.id))
+      .forEach((item) => {
+        if (!deduped.has(item.id)) deduped.set(item.id, item);
+      });
+    const homeResults = [...deduped.values()].sort((a, b) => Number(b.popularity || 0) - Number(a.popularity || 0)).slice(0, 18);
+    const firstError = settled.find((result) => result.status === "rejected")?.reason?.message;
+    setState({ homeResults, homeError: homeResults.length ? "" : firstError || "No recommendations yet.", homeLoading: false });
+  } catch (error) {
+    setState({ homeError: error.message, homeLoading: false });
+  }
 }
 
 function randomPick() {
@@ -239,6 +311,7 @@ function randomPick() {
 function render() {
   app.innerHTML = `
     <main class="shell">
+      ${state.tab === "home" ? homeView() : ""}
       ${state.tab === "queue" ? queueView() : ""}
       ${state.tab === "search" ? searchView() : ""}
       ${state.tab === "settings" ? settingsView() : ""}
@@ -249,6 +322,29 @@ function render() {
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
   `;
   bindEvents();
+  if (state.tab === "home") refreshHome();
+}
+
+function homeView() {
+  const seeds = state.items.filter((item) => item.source === "tmdb" && (item.type === "movie" || item.type === "tv"));
+  return `
+    <section class="view">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Based on queue</p>
+          <h1>Home</h1>
+        </div>
+        <button class="icon-button" data-action="refreshHome" aria-label="Refresh discovery">${icon("refresh")}</button>
+      </header>
+      ${!state.settings.tmdbApiKey ? `<div class="notice">Discovery needs your TMDB API key. <button data-tab="settings">Add key</button></div>` : ""}
+      ${state.settings.tmdbApiKey && !seeds.length ? emptyState("Build your feed", "Add a movie or TV show to your queue, then Home will recommend more.") : ""}
+      ${state.homeLoading ? `<div class="loading">Finding matches...</div>` : ""}
+      ${state.homeError ? `<div class="notice">${escapeHtml(state.homeError)}</div>` : ""}
+      <div class="discovery-grid">
+        ${state.homeResults.map(discoveryCard).join("")}
+      </div>
+    </section>
+  `;
 }
 
 function queueView() {
@@ -312,6 +408,12 @@ function settingsView() {
         </div>
       </header>
       <section class="panel">
+        <label class="toggle-row">
+          <span><strong>Dark mode</strong><small>Use dark theme across Keep.</small></span>
+          <input type="checkbox" data-action="theme" ${state.settings.theme === "dark" ? "checked" : ""} />
+        </label>
+      </section>
+      <section class="panel">
         <label class="label" for="tmdb-key">TMDB API key</label>
         <input id="tmdb-key" class="text-input" data-field="tmdbApiKey" value="${escapeAttr(state.settings.tmdbApiKey)}" placeholder="Paste key" />
         <p class="help">Stored only in this browser. Used for movie and TV search.</p>
@@ -325,6 +427,19 @@ function settingsView() {
         <button class="danger-button" data-action="clear">Clear</button>
       </section>
     </section>
+  `;
+}
+
+function discoveryCard(item) {
+  const saved = state.items.find((entry) => entry.id === item.id);
+  return `
+    <article class="discovery-card">
+      <button class="row-hit" data-preview-home="${escapeAttr(item.id)}" aria-label="Preview ${escapeAttr(item.title)}"></button>
+      ${poster(item)}
+      <div class="discovery-title">${escapeHtml(item.title)}</div>
+      <div class="media-meta">${label(item.type)}${item.year ? ` · ${escapeHtml(item.year)}` : ""}</div>
+      <button class="secondary-button" data-add-home="${escapeAttr(item.id)}">${saved ? "Saved" : "+ Queue"}</button>
+    </article>
   `;
 }
 
@@ -413,6 +528,7 @@ function pickSheet(item) {
 function tabBar() {
   return `
     <nav class="tabbar" aria-label="Main">
+      ${tab("home", "home", "Home")}
       ${tab("queue", "list", "Queue")}
       ${tab("search", "search", "Search")}
       ${tab("settings", "settings", "Settings")}
@@ -466,6 +582,7 @@ function bindEvents() {
       const field = input.dataset.field;
       if (field === "tmdbApiKey") {
         state.settings.tmdbApiKey = input.value.trim();
+        state.homeResults = [];
         KeepStore.saveSettings();
       } else {
         state[field] = input.value;
@@ -473,8 +590,11 @@ function bindEvents() {
     });
   });
   app.querySelector('[data-action="search"]')?.addEventListener("submit", runSearch);
+  app.querySelector("[data-action='refreshHome']")?.addEventListener("click", () => refreshHome(true));
   app.querySelectorAll("[data-add]").forEach((button) => button.addEventListener("click", () => addOrUpdate(state.searchResults.find((item) => item.id === button.dataset.add))));
+  app.querySelectorAll("[data-add-home]").forEach((button) => button.addEventListener("click", () => addOrUpdate(state.homeResults.find((item) => item.id === button.dataset.addHome))));
   app.querySelectorAll("[data-preview]").forEach((button) => button.addEventListener("click", () => setState({ selected: state.searchResults.find((item) => item.id === button.dataset.preview) })));
+  app.querySelectorAll("[data-preview-home]").forEach((button) => button.addEventListener("click", () => setState({ selected: state.homeResults.find((item) => item.id === button.dataset.previewHome) })));
   app.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => setState({ selected: state.items.find((item) => item.id === el.dataset.open), pick: null })));
   app.querySelectorAll("[data-action='close']").forEach((el) => el.addEventListener("click", () => setState({ selected: null })));
   app.querySelectorAll("[data-action='closePick']").forEach((el) => el.addEventListener("click", () => setState({ pick: null })));
@@ -516,6 +636,12 @@ function bindEvents() {
       KeepStore.saveItems();
       toast("Library cleared");
     }
+  });
+  app.querySelector("[data-action='theme']")?.addEventListener("change", (event) => {
+    state.settings.theme = event.target.checked ? "dark" : "light";
+    KeepStore.saveSettings();
+    applyTheme();
+    render();
   });
 }
 
@@ -570,7 +696,9 @@ function icon(name) {
     film: '<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 3v18M16 3v18M4 8h4M4 16h4M16 8h4M16 16h4"/></svg>',
     spark: '<svg viewBox="0 0 24 24"><path d="M12 2 9 9l-7 3 7 3 3 7 3-7 7-3-7-3-3-7Z"/></svg>',
     download: '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
-    upload: '<svg viewBox="0 0 24 24"><path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 3h14"/></svg>'
+    upload: '<svg viewBox="0 0 24 24"><path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 3h14"/></svg>',
+    home: '<svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg>'
   };
   return icons[name] || "";
 }

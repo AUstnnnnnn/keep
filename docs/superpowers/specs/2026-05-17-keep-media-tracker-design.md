@@ -13,6 +13,7 @@ The first version should be clean, minimal, fast on mobile Safari, and deployabl
 V1 includes:
 
 - Queue-first home screen.
+- Discovery home feed based on saved movie and TV titles.
 - Search and add media from TMDB and Jikan.
 - Three statuses: `queued`, `watching`, `watched`.
 - Personal reaction: `love`, `like`, `dislike`, plus optional notes.
@@ -20,6 +21,7 @@ V1 includes:
 - Local-first data storage.
 - JSON export/import backup.
 - Settings for TMDB API key.
+- Persisted dark mode toggle.
 - Installable iOS PWA shell.
 - GitHub Pages deployment setup.
 
@@ -40,13 +42,34 @@ The app should feel like a small native utility, not a landing page. The primary
 
 Navigation:
 
+- `Home`
 - `Queue`
 - `Search`
 - `Settings`
 
-The Queue tab owns daily use. Search is for adding new media. Settings handles API key and backup.
+Home owns discovery. Queue owns saved media management. Search is for adding new media. Settings handles API key, theme, and backup.
 
 ## Screens
+
+### Home
+
+Purpose: discover titles based on saved movies and TV shows.
+
+Elements:
+
+- Header with refresh control.
+- TMDB API key prompt if missing.
+- Empty state when no movie or TV seed exists.
+- Poster grid of recommendations.
+- Quick `+ Queue` action on each recommendation.
+- Detail sheet for previewing before saving.
+
+Behavior:
+
+- Uses TMDB recommendation endpoints for saved movie and TV items.
+- Excludes titles already saved.
+- Deduplicates recommendations across seeds.
+- Refresh can rebuild the feed.
 
 ### Queue
 
@@ -92,6 +115,7 @@ Purpose: configuration and backup.
 Elements:
 
 - TMDB API key input stored locally.
+- Dark mode toggle stored locally.
 - Export JSON backup.
 - Import JSON backup.
 - Clear all local data, behind confirmation.
