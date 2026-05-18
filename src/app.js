@@ -21,6 +21,7 @@ const state = {
   searchResults: [],
   searchLoading: false,
   searchError: "",
+  pasteImporting: false,
   selected: null,
   pick: null,
   toast: ""
@@ -527,8 +528,8 @@ function settingsView() {
       <section class="panel">
         <label class="label" for="paste-list">Paste titles</label>
         <textarea id="paste-list" data-paste-list placeholder="1. Twin Peaks&#10;- Redline&#10;• Lost in Translation"></textarea>
-        <p class="help">Reads numbered lists, bullets, dashes, and plain lines from Notes.</p>
-        <button class="primary-button full-button" data-action="importPaste">${icon("plus")} Add pasted titles</button>
+        <p class="help">Reads numbered lists, bullets, dashes, and plain lines, then matches each title through TMDB.</p>
+        <button class="primary-button full-button" data-action="importPaste" ${state.pasteImporting ? "disabled" : ""}>${icon("plus")} ${state.pasteImporting ? "Matching..." : "Add pasted titles"}</button>
       </section>
       <section class="panel danger-zone">
         <p><strong>Clear local data</strong><span>Removes saved titles on this browser.</span></p>
@@ -786,27 +787,55 @@ function bindEvents() {
   });
 }
 
-function importPastedList() {
+async function importPastedList() {
   const textarea = app.querySelector("[data-paste-list]");
   const titles = parseTitleList(textarea?.value || "");
   if (!titles.length) {
     toast("No titles found");
     return;
   }
-  const existing = new Set(state.items.map((item) => compactText(item.title)));
-  const additions = titles
-    .filter((title) => !existing.has(compactText(title)))
-    .map((title) => normalizeItem({ source: "manual", type: "movie", title, status: "queued" }));
+  if (!state.settings.tmdbApiKey.trim()) {
+    toast("Add TMDB key first");
+    return;
+  }
+  setState({ pasteImporting: true });
+  const existing = new Set(state.items.map((item) => item.id));
+  const seenTitles = new Set(state.items.map((item) => compactText(item.title)));
+  const additions = [];
+  const missed = [];
+  for (const title of titles) {
+    if (seenTitles.has(compactText(title))) continue;
+    try {
+      const match = await resolvePastedTitle(title);
+      if (match && !existing.has(match.id)) {
+        additions.push(match);
+        existing.add(match.id);
+        seenTitles.add(compactText(match.title));
+      } else {
+        missed.push(title);
+      }
+    } catch {
+      missed.push(title);
+    }
+  }
+  state.pasteImporting = false;
   if (!additions.length) {
-    toast("Already saved");
+    toast(missed.length ? "No matches found" : "Already saved");
+    render();
     return;
   }
   state.items = [...additions, ...state.items];
   state.homeResults = [];
   KeepStore.saveItems();
   if (textarea) textarea.value = "";
-  toast(`Added ${additions.length}`);
+  toast(missed.length ? `Added ${additions.length}, missed ${missed.length}` : `Added ${additions.length}`);
   render();
+}
+
+async function resolvePastedTitle(title) {
+  const results = await TmdbApi.search(title, "all");
+  const [best] = rankResults(results, title);
+  return best ? normalizeItem({ ...best, status: "queued" }) : null;
 }
 
 function parseTitleList(text) {
