@@ -93,6 +93,8 @@ function normalizeItem(item) {
     overview: item.overview || "",
     posterUrl: item.posterUrl || "",
     popularity: Number(item.popularity || 0),
+    voteAverage: Number(item.voteAverage || 0),
+    voteCount: Number(item.voteCount || 0),
     status: ["queued", "watching", "watched"].includes(item.status) ? item.status : "queued",
     reaction: ["love", "like", "dislike"].includes(item.reaction) ? item.reaction : null,
     notes: item.notes || "",
@@ -125,12 +127,18 @@ const TmdbApi = {
     if (!key) throw new Error("Add a TMDB API key in Settings to build your discovery feed.");
     const resolved = seed.source === "tmdb" ? seed : await this.resolveSeed(seed);
     if (!resolved) return [];
-    const url = new URL(`https://api.themoviedb.org/3/${resolved.type}/${resolved.sourceId}/recommendations`);
-    url.searchParams.set("api_key", key);
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("Discovery feed failed. Try again.");
-    const data = await response.json();
-    return (data.results || []).slice(0, 10).map((result) => mapTmdb(result, resolved.type));
+    const endpoints = ["recommendations", "similar"];
+    const chunks = await Promise.all(
+      endpoints.map(async (endpoint) => {
+        const url = new URL(`https://api.themoviedb.org/3/${resolved.type}/${resolved.sourceId}/${endpoint}`);
+        url.searchParams.set("api_key", key);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Discovery feed failed. Try again.");
+        const data = await response.json();
+        return (data.results || []).slice(0, 12).map((result) => mapTmdb(result, resolved.type));
+      })
+    );
+    return chunks.flat();
   },
   async resolveSeed(seed) {
     if (seed.source === "tmdb") return seed;
@@ -166,6 +174,8 @@ function mapTmdb(result, type) {
     overview: result.overview || "",
     posterUrl: result.poster_path ? `${TMDB_IMAGE}${result.poster_path}` : "",
     popularity: result.popularity || 0,
+    voteAverage: result.vote_average || 0,
+    voteCount: result.vote_count || 0,
     status: "queued"
   });
 }
@@ -246,6 +256,7 @@ function updateItem(id, patch) {
 function deleteItem(id) {
   state.items = state.items.filter((item) => item.id !== id);
   state.selected = null;
+  state.homeResults = [];
   KeepStore.saveItems();
   toast("Removed");
 }
@@ -359,28 +370,58 @@ function levenshtein(a, b) {
 
 async function refreshHome(force = false) {
   if (state.homeLoading || (!force && state.homeResults.length)) return;
-  const seeds = state.items.filter((item) => item.type === "movie" || item.type === "tv").slice(0, 6);
+  const seeds = rankedSeeds().slice(0, 8);
   if (!seeds.length) {
     if (state.homeResults.length || state.homeError) setState({ homeResults: [], homeError: "" });
     return;
   }
   setState({ homeLoading: true, homeError: "" });
   try {
-    const settled = await Promise.allSettled(seeds.map((seed) => TmdbApi.recommendations(seed)));
+    const seedWeights = new Map(seeds.map((seed, index) => [seed.id, seedWeight(seed) + (8 - index) * 4]));
+    const settled = await Promise.allSettled(seeds.map((seed) => TmdbApi.recommendations(seed).then((items) => ({ seed, items }))));
     const savedIds = new Set(state.items.map((item) => item.id));
     const deduped = new Map();
     settled
-      .flatMap((result) => (result.status === "fulfilled" ? result.value : []))
-      .filter((item) => !savedIds.has(item.id))
-      .forEach((item) => {
-        if (!deduped.has(item.id)) deduped.set(item.id, item);
+      .flatMap((result) => (result.status === "fulfilled" ? result.value.items.map((item) => ({ item, seed: result.value.seed })) : []))
+      .filter(({ item }) => isUsefulRecommendation(item) && !savedIds.has(item.id))
+      .forEach(({ item, seed }) => {
+        const current = deduped.get(item.id) || { item, score: 0, hits: 0 };
+        current.hits += 1;
+        current.score += recommendationScore(item, seedWeights.get(seed.id) || 0);
+        deduped.set(item.id, current);
       });
-    const homeResults = [...deduped.values()].sort((a, b) => Number(b.popularity || 0) - Number(a.popularity || 0)).slice(0, 18);
+    const homeResults = [...deduped.values()]
+      .sort((a, b) => b.score + b.hits * 55 - (a.score + a.hits * 55))
+      .map((entry) => entry.item)
+      .slice(0, 18);
     const firstError = settled.find((result) => result.status === "rejected")?.reason?.message;
     setState({ homeResults, homeError: homeResults.length ? "" : firstError || "No recommendations yet.", homeLoading: false });
   } catch (error) {
     setState({ homeError: error.message, homeLoading: false });
   }
+}
+
+function rankedSeeds() {
+  return state.items
+    .filter((item) => item.type === "movie" || item.type === "tv")
+    .sort((a, b) => seedWeight(b) - seedWeight(a) || new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function seedWeight(item) {
+  const reaction = { love: 70, like: 45, dislike: -80 }[item.reaction] || 0;
+  const status = { watched: 35, watching: 28, queued: 8 }[item.status] || 0;
+  return reaction + status + Math.min(Number(item.popularity || 0), 35);
+}
+
+function isUsefulRecommendation(item) {
+  if (!item.posterUrl || !item.overview) return false;
+  if (Number(item.voteCount || 0) && Number(item.voteCount || 0) < 25) return false;
+  if (Number(item.voteAverage || 0) && Number(item.voteAverage || 0) < 5.2) return false;
+  return Number(item.popularity || 0) >= 2;
+}
+
+function recommendationScore(item, seed) {
+  return seed + Math.min(Number(item.popularity || 0), 90) + Math.min(Number(item.voteCount || 0) / 20, 55) + Number(item.voteAverage || 0) * 8;
 }
 
 function randomPick() {
@@ -744,6 +785,11 @@ function bindEvents() {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       const item = state.items.find((entry) => entry.id === button.dataset.quickStatus);
+      if (!item) return;
+      if (state.tab === "queue") {
+        deleteItem(item.id);
+        return;
+      }
       const next = item.status === "queued" ? "watching" : item.status === "watching" ? "watched" : "queued";
       updateItem(item.id, { status: next });
     })
