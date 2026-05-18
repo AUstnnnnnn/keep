@@ -113,12 +113,20 @@ const TmdbApi = {
   async recommendations(seed) {
     const key = state.settings.tmdbApiKey.trim();
     if (!key) throw new Error("Add a TMDB API key in Settings to build your discovery feed.");
-    const url = new URL(`https://api.themoviedb.org/3/${seed.type}/${seed.sourceId}/recommendations`);
+    const resolved = seed.source === "tmdb" ? seed : await this.resolveSeed(seed);
+    if (!resolved) return [];
+    const url = new URL(`https://api.themoviedb.org/3/${resolved.type}/${resolved.sourceId}/recommendations`);
     url.searchParams.set("api_key", key);
     const response = await fetch(url);
     if (!response.ok) throw new Error("Discovery feed failed. Try again.");
     const data = await response.json();
-    return (data.results || []).slice(0, 10).map((result) => mapTmdb(result, seed.type));
+    return (data.results || []).slice(0, 10).map((result) => mapTmdb(result, resolved.type));
+  },
+  async resolveSeed(seed) {
+    if (seed.source === "tmdb") return seed;
+    if (seed.type !== "movie" && seed.type !== "tv") return null;
+    const results = await this.search(seed.title, seed.type);
+    return rankResults(results, seed.title)[0] || null;
   }
 };
 
@@ -274,7 +282,7 @@ function normalizeText(value) {
 
 async function refreshHome(force = false) {
   if (state.homeLoading || (!force && state.homeResults.length)) return;
-  const seeds = state.items.filter((item) => item.source === "tmdb" && (item.type === "movie" || item.type === "tv")).slice(0, 6);
+  const seeds = state.items.filter((item) => item.type === "movie" || item.type === "tv").slice(0, 6);
   if (!seeds.length) {
     if (state.homeResults.length || state.homeError) setState({ homeResults: [], homeError: "" });
     return;

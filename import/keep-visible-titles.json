@@ -1,0 +1,650 @@
+{
+  "version": 1,
+  "exportedAt": "2026-05-17T00:00:00.000Z",
+  "notes": [
+    "This JSON only includes titles visible in the screenshots.",
+    "Some posters were partially blocked by app controls, so a few titles may be missing from the full queue/watch history.",
+    "Titles are imported as manual entries, so posters and external metadata are not included."
+  ],
+  "items": [
+    {
+      "source": "manual",
+      "sourceId": "Long Vacation",
+      "type": "tv",
+      "title": "Long Vacation",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Hellraiser III",
+      "type": "movie",
+      "title": "Hellraiser III",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Waking Life",
+      "type": "movie",
+      "title": "Waking Life",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Lost in Translation",
+      "type": "movie",
+      "title": "Lost in Translation",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Genius Party Beyond",
+      "type": "anime",
+      "title": "Genius Party Beyond",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Redline",
+      "type": "anime",
+      "title": "Redline",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Mind Game",
+      "type": "anime",
+      "title": "Mind Game",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Mulholland Drive",
+      "type": "movie",
+      "title": "Mulholland Drive",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Snow on tha Bluff",
+      "type": "movie",
+      "title": "Snow on tha Bluff",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Strange Harvest",
+      "type": "movie",
+      "title": "Strange Harvest",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Death Proof",
+      "type": "movie",
+      "title": "Death Proof",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Blood: The Last Vampire",
+      "type": "anime",
+      "title": "Blood: The Last Vampire",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Wicker Man",
+      "type": "movie",
+      "title": "The Wicker Man",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Caligula",
+      "type": "movie",
+      "title": "Caligula",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Under the Skin",
+      "type": "movie",
+      "title": "Under the Skin",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Cyberpunk: Edgerunners",
+      "type": "anime",
+      "title": "Cyberpunk: Edgerunners",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Twin Peaks",
+      "type": "tv",
+      "title": "Twin Peaks",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "I Believe in Unicorns",
+      "type": "movie",
+      "title": "I Believe in Unicorns",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Beach Rats",
+      "type": "movie",
+      "title": "Beach Rats",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Charlie Bartlett",
+      "type": "movie",
+      "title": "Charlie Bartlett",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Marathon Man",
+      "type": "movie",
+      "title": "Marathon Man",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Hot Tub Time Machine",
+      "type": "movie",
+      "title": "Hot Tub Time Machine",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Shining",
+      "type": "movie",
+      "title": "The Shining",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Lars and the Real Girl",
+      "type": "movie",
+      "title": "Lars and the Real Girl",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "C’mon C’mon",
+      "type": "movie",
+      "title": "C’mon C’mon",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Usual Suspects",
+      "type": "movie",
+      "title": "The Usual Suspects",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Set",
+      "type": "movie",
+      "title": "The Set",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Back to the Future",
+      "type": "movie",
+      "title": "Back to the Future",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Serial Experiments Lain",
+      "type": "anime",
+      "title": "Serial Experiments Lain",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "A Different Man",
+      "type": "movie",
+      "title": "A Different Man",
+      "status": "queued",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "A Clockwork Orange",
+      "type": "movie",
+      "title": "A Clockwork Orange",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Strange Days",
+      "type": "movie",
+      "title": "Strange Days",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Death Note",
+      "type": "anime",
+      "title": "Death Note",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Avatar",
+      "type": "movie",
+      "title": "Avatar",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Now You See Me",
+      "type": "movie",
+      "title": "Now You See Me",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Now You See Me 2",
+      "type": "movie",
+      "title": "Now You See Me 2",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Now You See Me: Now You Don’t",
+      "type": "movie",
+      "title": "Now You See Me: Now You Don’t",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Smiling Friends",
+      "type": "tv",
+      "title": "Smiling Friends",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "500 Days of Summer",
+      "type": "movie",
+      "title": "500 Days of Summer",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Grandma’s Boy",
+      "type": "movie",
+      "title": "Grandma’s Boy",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Thoroughbreds",
+      "type": "movie",
+      "title": "Thoroughbreds",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Blow Out",
+      "type": "movie",
+      "title": "Blow Out",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Pulp Fiction",
+      "type": "movie",
+      "title": "Pulp Fiction",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Dune",
+      "type": "movie",
+      "title": "Dune",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Nerve",
+      "type": "movie",
+      "title": "Nerve",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Substance",
+      "type": "movie",
+      "title": "The Substance",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Swing Girls",
+      "type": "movie",
+      "title": "Swing Girls",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Sound of Metal",
+      "type": "movie",
+      "title": "Sound of Metal",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Perks of Being a Wallflower",
+      "type": "movie",
+      "title": "The Perks of Being a Wallflower",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Little Miss Sunshine",
+      "type": "movie",
+      "title": "Little Miss Sunshine",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Beautiful Boy",
+      "type": "movie",
+      "title": "Beautiful Boy",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Social Network",
+      "type": "movie",
+      "title": "The Social Network",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Eternal Sunshine of the Spotless Mind",
+      "type": "movie",
+      "title": "Eternal Sunshine of the Spotless Mind",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Gone Girl",
+      "type": "movie",
+      "title": "Gone Girl",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Wolf of Wall Street",
+      "type": "movie",
+      "title": "The Wolf of Wall Street",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Kids",
+      "type": "movie",
+      "title": "Kids",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Minority Report",
+      "type": "movie",
+      "title": "Minority Report",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Being John Malkovich",
+      "type": "movie",
+      "title": "Being John Malkovich",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Enter the Void",
+      "type": "movie",
+      "title": "Enter the Void",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Bring It On",
+      "type": "movie",
+      "title": "Bring It On",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Phantom of the Paradise",
+      "type": "movie",
+      "title": "Phantom of the Paradise",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Spider-Man",
+      "type": "movie",
+      "title": "Spider-Man",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Howl’s Moving Castle",
+      "type": "anime",
+      "title": "Howl’s Moving Castle",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Twilight Saga: Breaking Dawn – Part 1",
+      "type": "movie",
+      "title": "The Twilight Saga: Breaking Dawn – Part 1",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Marty Supreme",
+      "type": "movie",
+      "title": "Marty Supreme",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "The Life Aquatic with Steve Zissou",
+      "type": "movie",
+      "title": "The Life Aquatic with Steve Zissou",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Arrival",
+      "type": "movie",
+      "title": "Arrival",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Haha, You Clowns",
+      "type": "tv",
+      "title": "Haha, You Clowns",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Uptown Girls",
+      "type": "movie",
+      "title": "Uptown Girls",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Nightcrawler",
+      "type": "movie",
+      "title": "Nightcrawler",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    },
+    {
+      "source": "manual",
+      "sourceId": "Kill Bill",
+      "type": "movie",
+      "title": "Kill Bill",
+      "status": "watched",
+      "reaction": null,
+      "notes": ""
+    }
+  ]
+}
