@@ -13,6 +13,7 @@ const state = {
   homeError: "",
   filterStatus: "queued",
   filterType: "all",
+  queueFiltersOpen: false,
   libraryQuery: "",
   searchQuery: "",
   searchType: "all",
@@ -445,8 +446,13 @@ function queueView() {
         ${icon("search")}
         <input data-field="libraryQuery" value="${escapeAttr(state.libraryQuery)}" placeholder="Search your library" />
       </div>
-      <div class="chip-row">${chips("filterStatus", ["queued", "watching", "watched", "all"])}</div>
-      <div class="chip-row">${chips("filterType", ["all", "movie", "tv", "anime"])}</div>
+      <details class="filter-drawer" data-filter-drawer="queueFiltersOpen" ${state.queueFiltersOpen ? "open" : ""}>
+        <summary>${icon("filter")} Filters <span>${queueFilterLabel()}</span></summary>
+        <div class="filter-stack">
+          <div class="chip-row">${chips("filterStatus", ["queued", "watching", "watched", "all"])}</div>
+          <div class="chip-row">${chips("filterType", ["all", "movie", "tv", "anime"])}</div>
+        </div>
+      </details>
       <div class="queue-grid">
         ${items.length ? items.map(queueCard).join("") : emptyState("No titles here", "Add something from Search or change filters.")}
       </div>
@@ -470,7 +476,7 @@ function searchView() {
         </div>
         <button class="primary-button" type="submit">Search</button>
       </form>
-      <details class="filter-drawer" ${state.searchFiltersOpen ? "open" : ""}>
+      <details class="filter-drawer" data-filter-drawer="searchFiltersOpen" ${state.searchFiltersOpen ? "open" : ""}>
         <summary>${icon("filter")} Filters <span>${searchFilterLabel()}</span></summary>
         <div class="chip-row">${chips("searchType", ["all", "movie", "tv", "anime"])}</div>
       </details>
@@ -504,6 +510,16 @@ function settingsView() {
         <input id="tmdb-key" class="text-input" data-field="tmdbApiKey" value="${escapeAttr(state.settings.tmdbApiKey)}" placeholder="Paste key" />
         <p class="help">Stored only in this browser. Used for movie and TV search.</p>
       </section>
+      <details class="panel setup-guide">
+        <summary>${icon("key")} TMDB setup guide</summary>
+        <ol>
+          <li>Go to <a href="https://www.themoviedb.org/signup" target="_blank" rel="noreferrer">themoviedb.org/signup</a> and make a free account.</li>
+          <li>Open Settings on TMDB, then API, then request a Developer API key.</li>
+          <li>Choose personal use, fill the short form, and copy the API key.</li>
+          <li>Paste it into the TMDB API key field above. Search and Home discovery will start working.</li>
+        </ol>
+        <p class="help">Each friend uses their own key. Keep stores it only on their device.</p>
+      </details>
       <section class="panel grid-actions">
         <button class="secondary-button" data-action="export">${icon("download")} Export JSON</button>
         <label class="secondary-button file-button">${icon("upload")} Import JSON<input type="file" accept="application/json" data-action="import" /></label>
@@ -659,6 +675,12 @@ function searchFilterLabel() {
   return state.searchType === "all" ? "Movies + TV" : label(state.searchType);
 }
 
+function queueFilterLabel() {
+  const status = label(state.filterStatus);
+  const type = state.filterType === "all" ? "All media" : label(state.filterType);
+  return `${status} · ${type}`;
+}
+
 function segments(field, values, current, id) {
   return values
     .map(
@@ -690,8 +712,10 @@ function bindEvents() {
       setState({ [field]: value });
     })
   );
-  app.querySelector(".filter-drawer")?.addEventListener("toggle", (event) => {
-    state.searchFiltersOpen = event.currentTarget.open;
+  app.querySelectorAll("[data-filter-drawer]").forEach((drawer) => {
+    drawer.addEventListener("toggle", (event) => {
+      state[event.currentTarget.dataset.filterDrawer] = event.currentTarget.open;
+    });
   });
   app.querySelectorAll("[data-field]").forEach((input) => {
     input.addEventListener("input", () => {
@@ -853,6 +877,7 @@ function icon(name) {
     filter: '<svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/></svg>',
     home: '<svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>',
     refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg>'
+    ,key: '<svg viewBox="0 0 24 24"><circle cx="7.5" cy="14.5" r="4.5"/><path d="M11 11 21 1"/><path d="m16 6 2 2"/><path d="m14 8 2 2"/></svg>'
   };
   return icons[name] || "";
 }

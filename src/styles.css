@@ -58,6 +58,7 @@ textarea {
 
 button {
   -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
 }
 
 svg {
@@ -114,7 +115,7 @@ p {
 
 h1 {
   margin-bottom: 0;
-  font-size: 2.15rem;
+  font-size: 2rem;
   line-height: 1;
 }
 
@@ -192,6 +193,7 @@ h2 {
   background: color-mix(in oklch, var(--surface) 96%, var(--bg));
   color: var(--muted);
   padding: 0 13px;
+  font-size: 0.95rem;
   white-space: nowrap;
 }
 
@@ -209,6 +211,7 @@ h2 {
   background: color-mix(in oklch, var(--surface) 96%, var(--bg));
   color: var(--ink);
   padding: 0 14px;
+  font-size: 0.95rem;
   font-weight: 800;
   list-style: none;
 }
@@ -229,6 +232,12 @@ h2 {
 
 .filter-drawer .chip-row {
   padding-top: 10px;
+}
+
+.filter-stack {
+  display: grid;
+  gap: 0;
+  padding-top: 8px;
 }
 
 .chip.active {
@@ -287,7 +296,7 @@ h2 {
 .media-title {
   overflow: hidden;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.18;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -438,6 +447,7 @@ h2 {
   border: 0;
   border-radius: var(--radius-md);
   padding: 0 16px;
+  font-size: 0.96rem;
   font-weight: 800;
 }
 
@@ -466,6 +476,45 @@ h2 {
   border-radius: var(--radius-lg);
   background: color-mix(in oklch, var(--surface) 97%, var(--bg));
   padding: 16px;
+}
+
+.panel a {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.setup-guide {
+  padding: 0;
+  overflow: hidden;
+}
+
+.setup-guide summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 16px;
+  font-weight: 850;
+  list-style: none;
+}
+
+.setup-guide summary::-webkit-details-marker {
+  display: none;
+}
+
+.setup-guide ol {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 2px 18px 12px 38px;
+  color: var(--ink);
+  font-size: 0.94rem;
+  line-height: 1.35;
+}
+
+.setup-guide .help {
+  margin: 0;
+  padding: 0 16px 16px;
 }
 
 .notice {
@@ -519,7 +568,7 @@ h2 {
   border-radius: 18px;
   background: transparent;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 800;
 }
 
@@ -581,7 +630,7 @@ h2 {
   display: block;
   margin-bottom: 8px;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 800;
 }
 
@@ -619,6 +668,8 @@ textarea {
   outline: 0;
   background: var(--surface);
   color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.35;
   padding: 12px;
 }
 
@@ -633,6 +684,10 @@ textarea {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-top: 14px;
+}
+
+.grid-actions .secondary-button {
+  font-size: 0.9rem;
 }
 
 .panel {
@@ -785,5 +840,16 @@ textarea {
 
   .search-form .primary-button {
     width: 100%;
+  }
+
+  h1 {
+    font-size: 1.9rem;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .danger-button,
+  .file-button {
+    padding: 0 13px;
   }
 }
