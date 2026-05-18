@@ -9,6 +9,14 @@
   --accent: oklch(0.5 0.11 45);
   --danger: oklch(0.56 0.16 25);
   --shadow: 0 18px 50px oklch(0.22 0.02 230 / 0.12);
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
   font-family: ui-rounded, "SF Pro Rounded", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -66,7 +74,7 @@ svg {
   width: min(720px, 100%);
   min-height: 100svh;
   margin: 0 auto;
-  padding: max(18px, env(safe-area-inset-top)) 16px calc(92px + env(safe-area-inset-bottom));
+  padding: max(18px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-left)) calc(92px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-right));
 }
 
 .view {
@@ -83,9 +91,9 @@ svg {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   min-height: 64px;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .eyebrow {
@@ -123,7 +131,7 @@ h2 {
   min-width: 44px;
   min-height: 44px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: color-mix(in oklch, var(--surface) 92%, transparent);
   color: var(--ink);
 }
@@ -138,7 +146,7 @@ h2 {
   gap: 10px;
   min-height: 48px;
   border: 1px solid var(--line);
-  border-radius: 15px;
+  border-radius: var(--radius-md);
   background: color-mix(in oklch, var(--surface) 96%, var(--bg));
   padding: 0 14px;
 }
@@ -187,6 +195,42 @@ h2 {
   white-space: nowrap;
 }
 
+.filter-drawer {
+  margin: 0 0 var(--space-3);
+}
+
+.filter-drawer summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--surface) 96%, var(--bg));
+  color: var(--ink);
+  padding: 0 14px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.filter-drawer summary::-webkit-details-marker {
+  display: none;
+}
+
+.filter-drawer summary svg {
+  margin-right: 8px;
+}
+
+.filter-drawer summary span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.filter-drawer .chip-row {
+  padding-top: 10px;
+}
+
 .chip.active {
   border-color: var(--ink);
   background: var(--ink);
@@ -207,7 +251,7 @@ h2 {
   align-items: center;
   min-height: 82px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   background: color-mix(in oklch, var(--surface) 97%, var(--bg));
   padding: 10px;
   box-shadow: 0 10px 28px oklch(0.25 0.02 230 / 0.05);
@@ -224,7 +268,7 @@ h2 {
 .poster {
   width: 54px;
   aspect-ratio: 2 / 3;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
   object-fit: cover;
   box-shadow: inset 0 0 0 1px oklch(0.5 0.02 230 / 0.08);
@@ -267,6 +311,7 @@ h2 {
 
 .media-tags {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 7px;
 }
@@ -294,7 +339,7 @@ h2 {
   align-content: start;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   background: color-mix(in oklch, var(--surface) 97%, var(--bg));
   padding: 10px;
   box-shadow: 0 10px 28px oklch(0.25 0.02 230 / 0.05);
@@ -302,7 +347,60 @@ h2 {
 
 .discovery-card .poster {
   width: 100%;
-  border-radius: 13px;
+  border-radius: var(--radius-md);
+}
+
+.queue-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.queue-grid .empty {
+  grid-column: 1 / -1;
+}
+
+.queue-card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--surface) 97%, var(--bg));
+  padding: var(--space-2);
+  box-shadow: 0 10px 28px oklch(0.25 0.02 230 / 0.05);
+}
+
+.queue-card .poster {
+  width: 100%;
+  border-radius: var(--radius-md);
+}
+
+.queue-card-body {
+  min-width: 0;
+  padding: 10px 2px 0;
+}
+
+.queue-card .media-title {
+  white-space: normal;
+}
+
+.queue-card .media-tags {
+  padding: 0 2px;
+}
+
+.queue-status {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 3;
+  min-width: 38px;
+  min-height: 38px;
+  border-color: color-mix(in oklch, var(--surface), transparent 35%);
+  background: color-mix(in oklch, var(--surface) 76%, transparent);
+  backdrop-filter: blur(16px);
 }
 
 .discovery-title {
@@ -338,7 +436,7 @@ h2 {
   gap: 8px;
   min-height: 46px;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   padding: 0 16px;
   font-weight: 800;
 }
@@ -365,7 +463,7 @@ h2 {
 .empty,
 .panel {
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   background: color-mix(in oklch, var(--surface) 97%, var(--bg));
   padding: 16px;
 }
@@ -406,7 +504,7 @@ h2 {
   min-height: calc(66px + env(safe-area-inset-bottom));
   margin: 0 auto 10px;
   border: 1px solid color-mix(in oklch, var(--line), transparent 20%);
-  border-radius: 22px;
+  border-radius: 24px;
   background: color-mix(in oklch, var(--surface) 82%, transparent);
   box-shadow: var(--shadow);
   backdrop-filter: blur(24px);
@@ -418,7 +516,7 @@ h2 {
   place-items: center;
   min-height: 48px;
   border: 0;
-  border-radius: 16px;
+  border-radius: 18px;
   background: transparent;
   color: var(--muted);
   font-size: 0.72rem;
@@ -517,11 +615,16 @@ textarea {
   min-height: 108px;
   resize: vertical;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   outline: 0;
   background: var(--surface);
   color: var(--ink);
   padding: 12px;
+}
+
+.full-button {
+  width: 100%;
+  margin-top: 10px;
 }
 
 .sheet-actions,
@@ -658,5 +761,29 @@ textarea {
 
   .discovery-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .queue-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 390px) {
+  .shell {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .queue-grid,
+  .discovery-grid {
+    gap: 10px;
+  }
+
+  .search-form {
+    grid-template-columns: 1fr;
+  }
+
+  .search-form .primary-button {
+    width: 100%;
   }
 }

@@ -1,9 +1,11 @@
 const STORAGE_KEY = "keep.media.v1";
 const SETTINGS_KEY = "keep.settings.v1";
 const TMDB_IMAGE = "https://image.tmdb.org/t/p/w342";
+const TAB_IDS = ["home", "queue", "search", "settings"];
+const tabs = new Set(TAB_IDS);
 
 const state = {
-  tab: "home",
+  tab: initialTab(),
   items: [],
   settings: { tmdbApiKey: "", theme: "light" },
   homeResults: [],
@@ -14,6 +16,7 @@ const state = {
   libraryQuery: "",
   searchQuery: "",
   searchType: "all",
+  searchFiltersOpen: false,
   searchResults: [],
   searchLoading: false,
   searchError: "",
@@ -24,6 +27,11 @@ const state = {
 
 const $ = (selector) => document.querySelector(selector);
 const app = $("#app");
+
+function initialTab() {
+  const hashTab = location.hash.replace("#", "");
+  return tabs.has(hashTab) ? hashTab : "home";
+}
 
 const KeepStore = {
   load() {
@@ -186,6 +194,13 @@ function setState(patch) {
   render();
 }
 
+function switchTab(tab) {
+  if (!tabs.has(tab)) return;
+  state.tab = tab;
+  if (location.hash !== `#${tab}`) history.replaceState(null, "", `#${tab}`);
+  render();
+}
+
 function toast(message) {
   state.toast = message;
   render();
@@ -206,6 +221,17 @@ function addOrUpdate(item, patch = {}) {
   }
   state.homeResults = [];
   KeepStore.saveItems();
+  render();
+}
+
+function addFromSearch(item) {
+  if (!item) return;
+  addOrUpdate(item);
+  state.searchQuery = "";
+  state.searchResults = [];
+  state.searchError = "";
+  state.searchLoading = false;
+  state.selected = null;
   render();
 }
 
@@ -240,7 +266,7 @@ async function runSearch(event) {
   try {
     const searches = [];
     if (state.searchType !== "anime") searches.push(TmdbApi.search(query, state.searchType));
-    if (state.searchType === "all" || state.searchType === "anime") searches.push(JikanApi.search(query));
+    if (state.searchType === "anime") searches.push(JikanApi.search(query));
     const settled = await Promise.allSettled(searches);
     const results = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
     const errors = settled.filter((result) => result.status === "rejected");
@@ -262,10 +288,18 @@ function searchScore(item, query) {
   const q = normalizeText(query);
   const title = normalizeText(item.title);
   const original = normalizeText(item.originalTitle);
+  const compactQ = compactText(query);
+  const compactTitle = compactText(item.title);
+  const compactOriginal = compactText(item.originalTitle);
   let score = 0;
   if (title === q || original === q) score += 1000;
+  if (compactTitle === compactQ || compactOriginal === compactQ) score += 900;
   if (title.startsWith(q) || original.startsWith(q)) score += 500;
+  if (compactTitle.startsWith(compactQ) || compactOriginal.startsWith(compactQ)) score += 460;
   if (title.includes(q) || original.includes(q)) score += 200;
+  if (compactTitle.includes(compactQ) || compactOriginal.includes(compactQ)) score += 180;
+  score += fuzzyScore(compactQ, compactTitle);
+  score += fuzzyScore(compactQ, compactOriginal);
   if (item.type === "tv") score += 18;
   if (item.type === "movie") score += 10;
   score += Math.min(Number(item.popularity || 0), 150);
@@ -275,9 +309,50 @@ function searchScore(item, query) {
 function normalizeText(value) {
   return String(value || "")
     .toLowerCase()
-    .replace(/^the\s+/, "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’']/g, "")
     .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(the|a|an)\b/g, " ")
     .trim();
+}
+
+function compactText(value) {
+  return normalizeText(value).replace(/\s+/g, "");
+}
+
+function fuzzyScore(query, target) {
+  if (!query || !target) return 0;
+  const distance = levenshtein(query.slice(0, 36), target.slice(0, 36));
+  const max = Math.max(query.length, target.length, 1);
+  const similarity = 1 - distance / max;
+  let score = Math.max(0, similarity) * 120;
+  if (isSubsequence(query, target)) score += 70;
+  if (query.length <= 4 && target.startsWith(query)) score += 80;
+  return score;
+}
+
+function isSubsequence(needle, haystack) {
+  let index = 0;
+  for (const char of haystack) {
+    if (char === needle[index]) index += 1;
+    if (index === needle.length) return true;
+  }
+  return false;
+}
+
+function levenshtein(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const next = row[j];
+      row[j] = a[i - 1] === b[j - 1] ? prev : Math.min(prev, row[j - 1], row[j]) + 1;
+      prev = next;
+    }
+  }
+  return row[b.length];
 }
 
 async function refreshHome(force = false) {
@@ -334,7 +409,7 @@ function render() {
 }
 
 function homeView() {
-  const seeds = state.items.filter((item) => item.source === "tmdb" && (item.type === "movie" || item.type === "tv"));
+  const seeds = state.items.filter((item) => item.type === "movie" || item.type === "tv");
   return `
     <section class="view">
       <header class="topbar">
@@ -372,8 +447,8 @@ function queueView() {
       </div>
       <div class="chip-row">${chips("filterStatus", ["queued", "watching", "watched", "all"])}</div>
       <div class="chip-row">${chips("filterType", ["all", "movie", "tv", "anime"])}</div>
-      <div class="list">
-        ${items.length ? items.map(itemCard).join("") : emptyState("No titles here", "Add something from Search or change filters.")}
+      <div class="queue-grid">
+        ${items.length ? items.map(queueCard).join("") : emptyState("No titles here", "Add something from Search or change filters.")}
       </div>
     </section>
   `;
@@ -384,18 +459,21 @@ function searchView() {
     <section class="view">
       <header class="topbar">
         <div>
-          <p class="eyebrow">TMDB + Jikan</p>
+          <p class="eyebrow">${state.searchType === "anime" ? "Jikan" : "TMDB"}</p>
           <h1>Search</h1>
         </div>
       </header>
       <form class="search-form" data-action="search">
         <div class="field search-field">
           ${icon("search")}
-          <input data-field="searchQuery" value="${escapeAttr(state.searchQuery)}" placeholder="Movie, show, or anime" />
+          <input data-field="searchQuery" value="${escapeAttr(state.searchQuery)}" placeholder="Movie or show" />
         </div>
         <button class="primary-button" type="submit">Search</button>
       </form>
-      <div class="chip-row">${chips("searchType", ["all", "movie", "tv", "anime"])}</div>
+      <details class="filter-drawer" ${state.searchFiltersOpen ? "open" : ""}>
+        <summary>${icon("filter")} Filters <span>${searchFilterLabel()}</span></summary>
+        <div class="chip-row">${chips("searchType", ["all", "movie", "tv", "anime"])}</div>
+      </details>
       ${!state.settings.tmdbApiKey && state.searchType !== "anime" ? setupPrompt() : ""}
       ${state.searchLoading ? `<div class="loading">Searching...</div>` : ""}
       ${state.searchError ? `<div class="notice">${escapeHtml(state.searchError)}</div>` : ""}
@@ -429,6 +507,12 @@ function settingsView() {
       <section class="panel grid-actions">
         <button class="secondary-button" data-action="export">${icon("download")} Export JSON</button>
         <label class="secondary-button file-button">${icon("upload")} Import JSON<input type="file" accept="application/json" data-action="import" /></label>
+      </section>
+      <section class="panel">
+        <label class="label" for="paste-list">Paste titles</label>
+        <textarea id="paste-list" data-paste-list placeholder="1. Twin Peaks&#10;- Redline&#10;• Lost in Translation"></textarea>
+        <p class="help">Reads numbered lists, bullets, dashes, and plain lines from Notes.</p>
+        <button class="primary-button full-button" data-action="importPaste">${icon("plus")} Add pasted titles</button>
       </section>
       <section class="panel danger-zone">
         <p><strong>Clear local data</strong><span>Removes saved titles on this browser.</span></p>
@@ -464,6 +548,23 @@ function itemCard(item) {
         </div>
       </div>
       <button class="ghost-icon" data-quick-status="${escapeAttr(item.id)}" aria-label="Cycle status">${icon("check")}</button>
+    </article>
+  `;
+}
+
+function queueCard(item) {
+  return `
+    <article class="queue-card" data-open="${escapeAttr(item.id)}">
+      ${poster(item)}
+      <div class="queue-card-body">
+        <div class="media-title">${escapeHtml(item.title)}</div>
+        <div class="media-meta">${label(item.type)}${item.year ? ` · ${escapeHtml(item.year)}` : ""}</div>
+      </div>
+      <div class="media-tags">
+        <span>${label(item.status)}</span>
+        ${item.reaction ? `<span>${reactionIcon(item.reaction)} ${label(item.reaction)}</span>` : ""}
+      </div>
+      <button class="ghost-icon queue-status" data-quick-status="${escapeAttr(item.id)}" aria-label="Cycle status">${icon("check")}</button>
     </article>
   `;
 }
@@ -550,8 +651,12 @@ function tab(id, iconName, text) {
 
 function chips(field, values) {
   return values
-    .map((value) => `<button class="chip ${state[field] === value ? "active" : ""}" data-chip="${field}:${value}">${label(value)}</button>`)
+    .map((value) => `<button class="chip ${state[field] === value ? "active" : ""}" data-chip="${field}:${value}">${field === "searchType" && value === "all" ? "Movies + TV" : label(value)}</button>`)
     .join("");
+}
+
+function searchFilterLabel() {
+  return state.searchType === "all" ? "Movies + TV" : label(state.searchType);
 }
 
 function segments(field, values, current, id) {
@@ -578,13 +683,16 @@ function setupPrompt() {
 }
 
 function bindEvents() {
-  app.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => setState({ tab: button.dataset.tab })));
+  app.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => switchTab(button.dataset.tab)));
   app.querySelectorAll("[data-chip]").forEach((button) =>
     button.addEventListener("click", () => {
       const [field, value] = button.dataset.chip.split(":");
       setState({ [field]: value });
     })
   );
+  app.querySelector(".filter-drawer")?.addEventListener("toggle", (event) => {
+    state.searchFiltersOpen = event.currentTarget.open;
+  });
   app.querySelectorAll("[data-field]").forEach((input) => {
     input.addEventListener("input", () => {
       const field = input.dataset.field;
@@ -599,7 +707,7 @@ function bindEvents() {
   });
   app.querySelector('[data-action="search"]')?.addEventListener("submit", runSearch);
   app.querySelector("[data-action='refreshHome']")?.addEventListener("click", () => refreshHome(true));
-  app.querySelectorAll("[data-add]").forEach((button) => button.addEventListener("click", () => addOrUpdate(state.searchResults.find((item) => item.id === button.dataset.add))));
+  app.querySelectorAll("[data-add]").forEach((button) => button.addEventListener("click", () => addFromSearch(state.searchResults.find((item) => item.id === button.dataset.add))));
   app.querySelectorAll("[data-add-home]").forEach((button) => button.addEventListener("click", () => addOrUpdate(state.homeResults.find((item) => item.id === button.dataset.addHome))));
   app.querySelectorAll("[data-preview]").forEach((button) => button.addEventListener("click", () => setState({ selected: state.searchResults.find((item) => item.id === button.dataset.preview) })));
   app.querySelectorAll("[data-preview-home]").forEach((button) => button.addEventListener("click", () => setState({ selected: state.homeResults.find((item) => item.id === button.dataset.previewHome) })));
@@ -638,6 +746,7 @@ function bindEvents() {
   });
   app.querySelector("[data-action='export']")?.addEventListener("click", exportBackup);
   app.querySelector("[data-action='import']")?.addEventListener("change", importBackup);
+  app.querySelector("[data-action='importPaste']")?.addEventListener("click", importPastedList);
   app.querySelector("[data-action='clear']")?.addEventListener("click", () => {
     if (confirm("Clear all saved titles from this browser?")) {
       state.items = [];
@@ -651,6 +760,41 @@ function bindEvents() {
     applyTheme();
     render();
   });
+}
+
+function importPastedList() {
+  const textarea = app.querySelector("[data-paste-list]");
+  const titles = parseTitleList(textarea?.value || "");
+  if (!titles.length) {
+    toast("No titles found");
+    return;
+  }
+  const existing = new Set(state.items.map((item) => compactText(item.title)));
+  const additions = titles
+    .filter((title) => !existing.has(compactText(title)))
+    .map((title) => normalizeItem({ source: "manual", type: "movie", title, status: "queued" }));
+  if (!additions.length) {
+    toast("Already saved");
+    return;
+  }
+  state.items = [...additions, ...state.items];
+  state.homeResults = [];
+  KeepStore.saveItems();
+  if (textarea) textarea.value = "";
+  toast(`Added ${additions.length}`);
+  render();
+}
+
+function parseTitleList(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^\s*(?:[-*•‣–—]|(?:\d+|[a-zA-Z])[.)]|☐|☑|✓)\s*/, "")
+        .replace(/\s+#\w+\s*$/, "")
+        .trim()
+    )
+    .filter(Boolean);
 }
 
 function exportBackup() {
@@ -705,6 +849,8 @@ function icon(name) {
     spark: '<svg viewBox="0 0 24 24"><path d="M12 2 9 9l-7 3 7 3 3 7 3-7 7-3-7-3-3-7Z"/></svg>',
     download: '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
     upload: '<svg viewBox="0 0 24 24"><path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 3h14"/></svg>',
+    plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+    filter: '<svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/></svg>',
     home: '<svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>',
     refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg>'
   };
@@ -721,6 +867,8 @@ function escapeAttr(value = "") {
 
 KeepStore.load();
 render();
+
+window.addEventListener("hashchange", () => switchTab(initialTab()));
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
