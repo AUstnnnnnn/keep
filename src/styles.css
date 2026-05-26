@@ -103,14 +103,42 @@ svg {
   max-width: 100%;
 }
 
-.view {
-  animation: lift 160ms ease-out;
+.skeleton-row {
+  pointer-events: none;
 }
 
-@keyframes lift {
-  from {
-    transform: translateY(6px);
-  }
+.skel-block {
+  background: linear-gradient(110deg, var(--surface-2) 30%, color-mix(in oklch, var(--surface) 90%, var(--bg)) 50%, var(--surface-2) 70%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+
+.skel-body {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skel-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(110deg, var(--surface-2) 30%, color-mix(in oklch, var(--surface) 90%, var(--bg)) 50%, var(--surface-2) 70%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+
+.skel-line-title {
+  width: 68%;
+  height: 14px;
+}
+
+.skel-line-meta {
+  width: 38%;
+}
+
+.skel-line-summary {
+  width: 92%;
 }
 
 .topbar {
@@ -793,25 +821,25 @@ h2 {
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: oklch(0.18 0.02 230 / 0.3);
-  backdrop-filter: blur(4px);
+  background: oklch(0.18 0.02 230 / 0.34);
+  backdrop-filter: blur(6px);
 }
 
 .sheet {
   position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  right: max(8px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  left: max(8px, env(safe-area-inset-left));
   z-index: 31;
-  width: min(720px, 100%);
-  max-height: 88svh;
+  max-width: 704px;
+  max-height: calc(100svh - max(34px, env(safe-area-inset-top) + 18px) - max(10px, env(safe-area-inset-bottom)));
   margin: 0 auto;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 26px 26px 0 0;
+  border-radius: 32px;
   background: var(--bg);
   box-shadow: var(--shadow);
-  padding: 10px 16px calc(20px + env(safe-area-inset-bottom));
+  padding: 10px 18px 22px;
 }
 
 .grabber {

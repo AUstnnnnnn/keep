@@ -537,6 +537,8 @@ function randomPick() {
   render();
 }
 
+const animTracker = { tab: null, selectedId: null, pickId: null, editingListId: null };
+
 function render() {
   app.innerHTML = `
     <main class="shell">
@@ -551,12 +553,55 @@ function render() {
     ${state.editingListId ? listEditorSheet() : ""}
   `;
   bindEvents();
+  runEnterAnimations();
   if (state.tab === "home") {
     refreshHome();
     attachHomeObserver();
   } else {
     homeObserver?.disconnect();
   }
+}
+
+function runEnterAnimations() {
+  if (animTracker.tab !== state.tab) {
+    animTracker.tab = state.tab;
+    animateView();
+  }
+  const selectedId = state.selected?.id || null;
+  if (selectedId && selectedId !== animTracker.selectedId) animateSheet();
+  animTracker.selectedId = selectedId;
+  const pickId = state.pick?.id || null;
+  if (pickId && pickId !== animTracker.pickId) animateSheet();
+  animTracker.pickId = pickId;
+  if (state.editingListId && state.editingListId !== animTracker.editingListId) animateSheet();
+  animTracker.editingListId = state.editingListId;
+}
+
+function animateView() {
+  const view = app.querySelector(".view");
+  view?.animate(
+    [
+      { opacity: 0, transform: "translateY(10px)" },
+      { opacity: 1, transform: "translateY(0)" }
+    ],
+    { duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "backwards" }
+  );
+}
+
+function animateSheet() {
+  const sheet = app.querySelector(".sheet");
+  const scrim = app.querySelector(".scrim");
+  scrim?.animate(
+    [{ opacity: 0 }, { opacity: 1 }],
+    { duration: 220, easing: "ease-out", fill: "backwards" }
+  );
+  sheet?.animate(
+    [
+      { opacity: 0, transform: "translateY(28px) scale(0.97)" },
+      { opacity: 1, transform: "translateY(0) scale(1)" }
+    ],
+    { duration: 320, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "backwards" }
+  );
 }
 
 function homeView() {
@@ -699,13 +744,26 @@ function searchView() {
         <div class="chip-row">${chips("searchType", ["all", "movie", "tv", "anime"])}</div>
       </details>
       ${!state.settings.tmdbApiKey && state.searchType !== "anime" ? setupPrompt() : ""}
-      ${state.searchLoading ? `<div class="loading">Searching...</div>` : ""}
       ${state.searchError ? `<div class="notice">${escapeHtml(state.searchError)}</div>` : ""}
       <div class="list">
-        ${state.searchResults.map(searchCard).join("")}
+        ${state.searchLoading ? searchSkeletons(5) : state.searchResults.map(searchCard).join("")}
       </div>
     </section>
   `;
+}
+
+function searchSkeletons(count) {
+  const row = `
+    <div class="media-row skeleton-row" aria-hidden="true">
+      <div class="poster skel-block"></div>
+      <div class="skel-body">
+        <div class="skel-line skel-line-title"></div>
+        <div class="skel-line skel-line-meta"></div>
+        <div class="skel-line skel-line-summary"></div>
+      </div>
+    </div>
+  `;
+  return row.repeat(count);
 }
 
 function settingsView() {
