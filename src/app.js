@@ -1,5 +1,6 @@
 const STORAGE_KEY = "keep.media.v1";
 const SETTINGS_KEY = "keep.settings.v1";
+const LISTS_KEY = "keep.lists.v1";
 const TMDB_IMAGE = "https://image.tmdb.org/t/p/w342";
 const TAB_IDS = ["home", "queue", "search", "settings"];
 const tabs = new Set(TAB_IDS);
@@ -7,6 +8,7 @@ const tabs = new Set(TAB_IDS);
 const state = {
   tab: initialTab(),
   items: [],
+  lists: [],
   settings: { tmdbApiKey: "", theme: "light" },
   homeResults: [],
   homeLoading: false,
@@ -23,8 +25,9 @@ const state = {
   searchError: "",
   pasteImporting: false,
   selected: null,
+  editingListId: null,
   pick: null,
-  toast: ""
+  updating: false
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -38,29 +41,36 @@ function initialTab() {
 const KeepStore = {
   load() {
     state.items = safeParse(localStorage.getItem(STORAGE_KEY), []);
+    state.lists = safeParse(localStorage.getItem(LISTS_KEY), []).map(normalizeList);
     state.settings = { tmdbApiKey: "", theme: "light", ...safeParse(localStorage.getItem(SETTINGS_KEY), {}) };
     applyTheme();
   },
   saveItems() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.items));
   },
+  saveLists() {
+    localStorage.setItem(LISTS_KEY, JSON.stringify(state.lists));
+  },
   saveSettings() {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
   },
   exportBackup() {
     return {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       items: state.items,
+      lists: state.lists,
       settings: { tmdbApiKey: state.settings.tmdbApiKey ? "__stored-locally__" : "" }
     };
   },
   importBackup(backup) {
-    if (!backup || backup.version !== 1 || !Array.isArray(backup.items)) {
-      throw new Error("Backup must be a Keep v1 JSON file.");
+    if (!backup || !Array.isArray(backup.items) || (backup.version !== 1 && backup.version !== 2)) {
+      throw new Error("Backup must be a Keep v1 or v2 JSON file.");
     }
     state.items = backup.items.map(normalizeItem);
+    state.lists = Array.isArray(backup.lists) ? backup.lists.map(normalizeList) : [];
     this.saveItems();
+    this.saveLists();
   }
 };
 
@@ -78,6 +88,45 @@ function uid(source, type, id) {
 
 function now() {
   return new Date().toISOString();
+}
+
+function normalizeList(list) {
+  return {
+    id: list.id || `list:${crypto.randomUUID()}`,
+    name: String(list.name || "Untitled list").slice(0, 80),
+    itemIds: Array.isArray(list.itemIds) ? list.itemIds.filter(Boolean) : [],
+    createdAt: list.createdAt || now()
+  };
+}
+
+function createList(name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return null;
+  const list = normalizeList({ name: trimmed });
+  state.lists = [list, ...state.lists];
+  KeepStore.saveLists();
+  return list;
+}
+
+function toggleItemInList(listId, itemId) {
+  state.lists = state.lists.map((list) => {
+    if (list.id !== listId) return list;
+    const ids = list.itemIds.includes(itemId) ? list.itemIds.filter((id) => id !== itemId) : [...list.itemIds, itemId];
+    return { ...list, itemIds: ids };
+  });
+  KeepStore.saveLists();
+}
+
+function renameList(listId, name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return;
+  state.lists = state.lists.map((list) => (list.id === listId ? { ...list, name: trimmed.slice(0, 80) } : list));
+  KeepStore.saveLists();
+}
+
+function deleteList(listId) {
+  state.lists = state.lists.filter((list) => list.id !== listId);
+  KeepStore.saveLists();
 }
 
 function normalizeItem(item) {
@@ -213,11 +262,19 @@ function switchTab(tab) {
   render();
 }
 
+let toastNode = null;
+let toastTimer = 0;
 function toast(message) {
-  state.toast = message;
-  render();
-  window.setTimeout(() => {
-    if (state.toast === message) setState({ toast: "" });
+  if (!toastNode) {
+    toastNode = document.createElement("div");
+    toastNode.className = "toast";
+    document.body.appendChild(toastNode);
+  }
+  toastNode.textContent = message;
+  toastNode.classList.add("toast-visible");
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    toastNode?.classList.remove("toast-visible");
   }, 2200);
 }
 
@@ -255,9 +312,11 @@ function updateItem(id, patch) {
 
 function deleteItem(id) {
   state.items = state.items.filter((item) => item.id !== id);
+  state.lists = state.lists.map((list) => ({ ...list, itemIds: list.itemIds.filter((itemId) => itemId !== id) }));
   state.selected = null;
   state.homeResults = [];
   KeepStore.saveItems();
+  KeepStore.saveLists();
   toast("Removed");
 }
 
@@ -445,7 +504,7 @@ function render() {
     ${tabBar()}
     ${state.selected ? detailSheet(state.selected) : ""}
     ${state.pick ? pickSheet(state.pick) : ""}
-    ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
+    ${state.editingListId ? listEditorSheet() : ""}
   `;
   bindEvents();
   if (state.tab === "home") refreshHome();
@@ -453,23 +512,67 @@ function render() {
 
 function homeView() {
   const seeds = state.items.filter((item) => item.type === "movie" || item.type === "tv");
+  const hasLists = state.lists.length > 0;
+  const showDiscovery = state.settings.tmdbApiKey && seeds.length > 0;
+  const showEmpty = !hasLists && !seeds.length;
   return `
-    <section class="view">
+    <section class="view home-view">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Based on queue</p>
+          <p class="eyebrow">${state.items.length ? `${state.items.length} saved` : "Welcome"}</p>
           <h1>Home</h1>
         </div>
         <button class="icon-button" data-action="refreshHome" aria-label="Refresh discovery">${icon("refresh")}</button>
       </header>
       ${!state.settings.tmdbApiKey ? `<div class="notice">Discovery needs your TMDB API key. <button data-tab="settings">Add key</button></div>` : ""}
-      ${state.settings.tmdbApiKey && !seeds.length ? emptyState("Build your feed", "Add a movie or TV show to your queue, then Home will recommend more.") : ""}
-      ${state.homeLoading ? `<div class="loading">Finding matches...</div>` : ""}
-      ${state.homeError ? `<div class="notice">${escapeHtml(state.homeError)}</div>` : ""}
-      <div class="discovery-grid">
-        ${state.homeResults.map(discoveryCard).join("")}
-      </div>
+      ${showEmpty ? emptyState("Start your library", "Add a movie or show from Search, then build curated lists and unlock recommendations.") : ""}
+      ${state.lists.map(listRail).join("")}
+      ${showDiscovery ? discoveryRail() : ""}
     </section>
+  `;
+}
+
+function listRail(list) {
+  const items = list.itemIds
+    .map((id) => state.items.find((entry) => entry.id === id))
+    .filter(Boolean);
+  return `
+    <section class="rail">
+      <header class="rail-head">
+        <h2>${escapeHtml(list.name)}</h2>
+        <button class="rail-edit" data-edit-list="${escapeAttr(list.id)}" aria-label="Edit list">${icon("more")}</button>
+      </header>
+      ${items.length
+        ? `<div class="rail-track">${items.map((item) => railCard(item, "library")).join("")}</div>`
+        : `<p class="rail-empty">Empty list. Tap a title and add it here.</p>`}
+    </section>
+  `;
+}
+
+function discoveryRail() {
+  const body = state.homeLoading
+    ? `<div class="rail-skeleton">${"<div></div>".repeat(6)}</div>`
+    : state.homeError
+      ? `<p class="rail-empty">${escapeHtml(state.homeError)}</p>`
+      : state.homeResults.length
+        ? `<div class="rail-track">${state.homeResults.map((item) => railCard(item, "discovery")).join("")}</div>`
+        : `<p class="rail-empty">No recommendations yet.</p>`;
+  return `
+    <section class="rail">
+      <header class="rail-head">
+        <h2>For you</h2>
+      </header>
+      ${body}
+    </section>
+  `;
+}
+
+function railCard(item, kind) {
+  const attr = kind === "discovery" ? `data-preview-home="${escapeAttr(item.id)}"` : `data-open="${escapeAttr(item.id)}"`;
+  return `
+    <button class="rail-card" ${attr} aria-label="${escapeAttr(item.title)}">
+      ${poster(item)}
+    </button>
   `;
 }
 
@@ -562,6 +665,10 @@ function settingsView() {
         </ol>
         <p class="help">Each friend uses their own key. Keep stores it only on their device.</p>
       </details>
+      <section class="panel">
+        <p class="panel-row"><strong>App version</strong><span class="help">Refresh cached app files without losing your saved titles or settings.</span></p>
+        <button class="primary-button full-button" data-action="checkUpdate" ${state.updating ? "disabled" : ""}>${icon("refresh")} ${state.updating ? "Updating..." : "Check for update"}</button>
+      </section>
       <section class="panel grid-actions">
         <button class="secondary-button" data-action="export">${icon("download")} Export JSON</button>
         <label class="secondary-button file-button">${icon("upload")} Import JSON<input type="file" accept="application/json" data-action="import" /></label>
@@ -580,47 +687,12 @@ function settingsView() {
   `;
 }
 
-function discoveryCard(item) {
-  const saved = state.items.find((entry) => entry.id === item.id);
-  return `
-    <article class="discovery-card">
-      <button class="row-hit" data-preview-home="${escapeAttr(item.id)}" aria-label="Preview ${escapeAttr(item.title)}"></button>
-      ${poster(item)}
-      <div class="discovery-title">${escapeHtml(item.title)}</div>
-      <div class="media-meta">${label(item.type)}${item.year ? ` · ${escapeHtml(item.year)}` : ""}</div>
-      <button class="secondary-button" data-add-home="${escapeAttr(item.id)}">${saved ? "Saved" : "+ Queue"}</button>
-    </article>
-  `;
-}
-
-function itemCard(item) {
-  return `
-    <article class="media-row" data-open="${escapeAttr(item.id)}">
-      ${poster(item)}
-      <div class="media-body">
-        <div class="media-title">${escapeHtml(item.title)}</div>
-        <div class="media-meta">${label(item.type)}${item.year ? ` · ${escapeHtml(item.year)}` : ""}</div>
-        <div class="media-tags">
-          <span>${label(item.status)}</span>
-          ${item.reaction ? `<span>${reactionIcon(item.reaction)} ${label(item.reaction)}</span>` : ""}
-        </div>
-      </div>
-      <button class="ghost-icon" data-quick-status="${escapeAttr(item.id)}" aria-label="Cycle status">${icon("check")}</button>
-    </article>
-  `;
-}
-
 function queueCard(item) {
   return `
     <article class="queue-card" data-open="${escapeAttr(item.id)}">
       ${poster(item)}
       <div class="queue-card-body">
         <div class="media-title">${escapeHtml(item.title)}</div>
-        <div class="media-meta">${label(item.type)}${item.year ? ` · ${escapeHtml(item.year)}` : ""}</div>
-      </div>
-      <div class="media-tags">
-        <span>${label(item.status)}</span>
-        ${item.reaction ? `<span>${reactionIcon(item.reaction)} ${label(item.reaction)}</span>` : ""}
       </div>
       <button class="ghost-icon queue-status" data-quick-status="${escapeAttr(item.id)}" aria-label="Cycle status">${icon("check")}</button>
     </article>
@@ -645,6 +717,7 @@ function searchCard(item) {
 
 function detailSheet(item) {
   const saved = state.items.find((entry) => entry.id === item.id) || item;
+  const inLibrary = state.items.some((entry) => entry.id === saved.id);
   return `
     <div class="scrim" data-action="close"></div>
     <aside class="sheet">
@@ -665,11 +738,50 @@ function detailSheet(item) {
         <span class="label">Reaction</span>
         <div class="segmented">${segments("reaction", ["love", "like", "dislike", "none"], saved.reaction || "none", saved.id)}</div>
       </div>
+      ${inLibrary ? listPicker(saved) : ""}
       <label class="label" for="notes">Notes</label>
       <textarea id="notes" data-notes="${escapeAttr(saved.id)}" placeholder="Private notes">${escapeHtml(saved.notes || "")}</textarea>
       <div class="sheet-actions">
-        ${state.items.some((entry) => entry.id === saved.id) ? `<button class="danger-button" data-delete="${escapeAttr(saved.id)}">Remove</button>` : ""}
-        <button class="primary-button" data-save-detail="${escapeAttr(saved.id)}">Save</button>
+        ${inLibrary ? `<button class="danger-button" data-delete="${escapeAttr(saved.id)}">Remove</button>` : ""}
+        <button class="primary-button" data-save-detail="${escapeAttr(saved.id)}">${inLibrary ? "Save" : "Add to queue"}</button>
+      </div>
+    </aside>
+  `;
+}
+
+function listPicker(item) {
+  return `
+    <div class="control-group">
+      <span class="label">Lists</span>
+      <div class="list-pills">
+        ${state.lists
+          .map((list) => {
+            const active = list.itemIds.includes(item.id);
+            return `<button class="list-pill ${active ? "active" : ""}" data-toggle-list="${escapeAttr(list.id)}" data-toggle-item="${escapeAttr(item.id)}">${escapeHtml(list.name)}</button>`;
+          })
+          .join("")}
+      </div>
+      <div class="new-list-row">
+        <input data-new-list-name placeholder="New list name" maxlength="80" />
+        <button class="secondary-button" data-create-list="${escapeAttr(item.id)}">${icon("plus")} Create</button>
+      </div>
+    </div>
+  `;
+}
+
+function listEditorSheet() {
+  const list = state.lists.find((entry) => entry.id === state.editingListId);
+  if (!list) return "";
+  return `
+    <div class="scrim" data-action="closeListEditor"></div>
+    <aside class="sheet">
+      <div class="grabber"></div>
+      <p class="eyebrow">List · ${list.itemIds.length} titles</p>
+      <label class="label" for="list-name-edit">Name</label>
+      <input id="list-name-edit" class="text-input" data-list-name-edit value="${escapeAttr(list.name)}" maxlength="80" />
+      <div class="sheet-actions">
+        <button class="danger-button" data-delete-list="${escapeAttr(list.id)}">${icon("trash")} Delete</button>
+        <button class="primary-button" data-save-list="${escapeAttr(list.id)}">Save</button>
       </div>
     </aside>
   `;
@@ -815,14 +927,56 @@ function bindEvents() {
   app.querySelector("[data-delete]")?.addEventListener("click", (event) => {
     if (confirm("Remove this title from Keep?")) deleteItem(event.currentTarget.dataset.delete);
   });
+  app.querySelectorAll("[data-edit-list]").forEach((button) =>
+    button.addEventListener("click", () => setState({ editingListId: button.dataset.editList }))
+  );
+  app.querySelectorAll("[data-toggle-list]").forEach((button) =>
+    button.addEventListener("click", () => {
+      toggleItemInList(button.dataset.toggleList, button.dataset.toggleItem);
+      render();
+    })
+  );
+  app.querySelector("[data-create-list]")?.addEventListener("click", (event) => {
+    const itemId = event.currentTarget.dataset.createList;
+    const input = app.querySelector("[data-new-list-name]");
+    const list = createList(input?.value || "");
+    if (!list) {
+      toast("Name required");
+      return;
+    }
+    toggleItemInList(list.id, itemId);
+    if (input) input.value = "";
+    toast(`Created ${list.name}`);
+    render();
+  });
+  app.querySelector("[data-save-list]")?.addEventListener("click", (event) => {
+    const id = event.currentTarget.dataset.saveList;
+    const name = app.querySelector("[data-list-name-edit]")?.value || "";
+    renameList(id, name);
+    setState({ editingListId: null });
+  });
+  app.querySelector("[data-delete-list]")?.addEventListener("click", (event) => {
+    if (confirm("Delete this list? Titles stay in your library.")) {
+      deleteList(event.currentTarget.dataset.deleteList);
+      setState({ editingListId: null });
+      toast("List deleted");
+    }
+  });
+  app.querySelectorAll("[data-action='closeListEditor']").forEach((el) =>
+    el.addEventListener("click", () => setState({ editingListId: null }))
+  );
+  app.querySelector("[data-action='checkUpdate']")?.addEventListener("click", checkForUpdate);
   app.querySelector("[data-action='export']")?.addEventListener("click", exportBackup);
   app.querySelector("[data-action='import']")?.addEventListener("change", importBackup);
   app.querySelector("[data-action='importPaste']")?.addEventListener("click", importPastedList);
   app.querySelector("[data-action='clear']")?.addEventListener("click", () => {
-    if (confirm("Clear all saved titles from this browser?")) {
+    if (confirm("Clear all saved titles and lists from this browser?")) {
       state.items = [];
+      state.lists = [];
       KeepStore.saveItems();
+      KeepStore.saveLists();
       toast("Library cleared");
+      render();
     }
   });
   app.querySelector("[data-action='theme']")?.addEventListener("change", (event) => {
@@ -906,6 +1060,26 @@ function exportBackup() {
   URL.revokeObjectURL(url);
 }
 
+async function checkForUpdate() {
+  if (state.updating) return;
+  setState({ updating: true });
+  toast("Refreshing app...");
+  try {
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((reg) => reg.unregister()));
+    }
+    window.setTimeout(() => location.reload(), 500);
+  } catch (error) {
+    setState({ updating: false });
+    toast(`Update failed: ${error.message}`);
+  }
+}
+
 async function importBackup(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -953,6 +1127,8 @@ function icon(name) {
     home: '<svg viewBox="0 0 24 24"><path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>',
     refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg>'
     ,key: '<svg viewBox="0 0 24 24"><circle cx="7.5" cy="14.5" r="4.5"/><path d="M11 11 21 1"/><path d="m16 6 2 2"/><path d="m14 8 2 2"/></svg>'
+    ,more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>'
+    ,trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7v13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7"/><path d="M10 11v6M14 11v6"/></svg>'
   };
   return icons[name] || "";
 }
