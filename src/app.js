@@ -1,6 +1,7 @@
 const STORAGE_KEY = "keep.media.v1";
 const SETTINGS_KEY = "keep.settings.v1";
 const LISTS_KEY = "keep.lists.v1";
+const LANDING_KEY = "keep.landing.dismissed.v1";
 const TMDB_IMAGE = "https://image.tmdb.org/t/p/w342";
 const TAB_IDS = ["home", "library", "search", "settings"];
 const tabs = new Set(TAB_IDS);
@@ -31,7 +32,8 @@ const state = {
   selected: null,
   editingListId: null,
   pick: null,
-  updating: false
+  updating: false,
+  showLanding: false
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -41,6 +43,18 @@ function initialTab() {
   const hashTab = location.hash.replace("#", "");
   const aliased = TAB_ALIASES[hashTab] || hashTab;
   return tabs.has(aliased) ? aliased : "home";
+}
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function shouldShowLanding() {
+  if (isStandalone()) return false;
+  if (location.hash) return false;
+  if (localStorage.getItem(LANDING_KEY) === "1") return false;
+  if (state.items.length > 0 || state.settings.tmdbApiKey) return false;
+  return true;
 }
 
 const KeepStore = {
@@ -537,9 +551,16 @@ function randomPick() {
   render();
 }
 
-const animTracker = { tab: null, selectedId: null, pickId: null, editingListId: null };
+const animTracker = { tab: null, selectedId: null, pickId: null, editingListId: null, landing: null };
 
 function render() {
+  if (state.showLanding) {
+    app.innerHTML = landingView();
+    bindLandingEvents();
+    runEnterAnimations();
+    homeObserver?.disconnect();
+    return;
+  }
   app.innerHTML = `
     <main class="shell">
       ${state.tab === "home" ? homeView() : ""}
@@ -563,6 +584,14 @@ function render() {
 }
 
 function runEnterAnimations() {
+  if (state.showLanding) {
+    if (animTracker.landing !== true) {
+      animTracker.landing = true;
+      animateView();
+    }
+    return;
+  }
+  animTracker.landing = false;
   if (animTracker.tab !== state.tab) {
     animTracker.tab = state.tab;
     animateView();
@@ -578,7 +607,7 @@ function runEnterAnimations() {
 }
 
 function animateView() {
-  const view = app.querySelector(".view");
+  const view = app.querySelector(".view, .landing");
   view?.animate(
     [
       { opacity: 0, transform: "translateY(10px)" },
@@ -601,6 +630,59 @@ function animateSheet() {
       { opacity: 1, transform: "translateY(0) scale(1)" }
     ],
     { duration: 320, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "backwards" }
+  );
+}
+
+function landingView() {
+  return `
+    <main class="landing">
+      <section class="landing-hero">
+        <img src="./icons/icon-192.svg" alt="" class="landing-icon" />
+        <h1>Keep</h1>
+        <p class="landing-tagline">Track the movies and shows you actually want to watch. Your library lives on your phone — no cloud, no account, no ads.</p>
+        <button class="primary-button landing-cta" data-action="enterApp">Open Keep</button>
+      </section>
+
+      <section class="landing-step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h2>Install it</h2>
+          <p>In Safari, tap the <strong>Share</strong> icon, scroll to <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>. Keep opens like a real app — fullscreen, offline-ready.</p>
+        </div>
+      </section>
+
+      <section class="landing-step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h2>Grab a free TMDB key</h2>
+          <p>Keep uses your own <a href="https://www.themoviedb.org/signup" target="_blank" rel="noreferrer">TMDB</a> key so searches stay private. Sign up free, open Settings → API on TMDB, paste the key into Keep → Settings.</p>
+        </div>
+      </section>
+
+      <section class="landing-step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h2>Build your library</h2>
+          <p>Search anything, tap to save. Make curated lists like <em>Saturday horror</em> or <em>Date night</em>. Home fills with picks based on your queue and reactions.</p>
+        </div>
+      </section>
+
+      <section class="landing-foot">
+        <p>Everything stays on your device. Export a JSON backup any time from Settings.</p>
+        <button class="primary-button landing-cta" data-action="enterApp">Open Keep</button>
+        <p class="landing-fine">Works offline once installed · Free forever</p>
+      </section>
+    </main>
+  `;
+}
+
+function bindLandingEvents() {
+  app.querySelectorAll("[data-action='enterApp']").forEach((button) =>
+    button.addEventListener("click", () => {
+      localStorage.setItem(LANDING_KEY, "1");
+      state.showLanding = false;
+      render();
+    })
   );
 }
 
@@ -1285,6 +1367,7 @@ function escapeAttr(value = "") {
 }
 
 KeepStore.load();
+state.showLanding = shouldShowLanding();
 render();
 
 window.addEventListener("hashchange", () => switchTab(initialTab()));
