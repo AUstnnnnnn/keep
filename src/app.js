@@ -2,8 +2,9 @@ const STORAGE_KEY = "keep.media.v1";
 const SETTINGS_KEY = "keep.settings.v1";
 const LISTS_KEY = "keep.lists.v1";
 const TMDB_IMAGE = "https://image.tmdb.org/t/p/w342";
-const TAB_IDS = ["home", "queue", "search", "settings"];
+const TAB_IDS = ["home", "library", "search", "settings"];
 const tabs = new Set(TAB_IDS);
+const TAB_ALIASES = { queue: "library" };
 
 const state = {
   tab: initialTab(),
@@ -13,6 +14,9 @@ const state = {
   homeResults: [],
   homeLoading: false,
   homeError: "",
+  homePage: 0,
+  homeHasMore: true,
+  composingList: false,
   filterStatus: "queued",
   filterType: "all",
   queueFiltersOpen: false,
@@ -35,7 +39,8 @@ const app = $("#app");
 
 function initialTab() {
   const hashTab = location.hash.replace("#", "");
-  return tabs.has(hashTab) ? hashTab : "home";
+  const aliased = TAB_ALIASES[hashTab] || hashTab;
+  return tabs.has(aliased) ? aliased : "home";
 }
 
 const KeepStore = {
@@ -171,7 +176,7 @@ const TmdbApi = {
     );
     return chunks.flat();
   },
-  async recommendations(seed) {
+  async recommendations(seed, page = 1) {
     const key = state.settings.tmdbApiKey.trim();
     if (!key) throw new Error("Add a TMDB API key in Settings to build your discovery feed.");
     const resolved = seed.source === "tmdb" ? seed : await this.resolveSeed(seed);
@@ -181,10 +186,11 @@ const TmdbApi = {
       endpoints.map(async (endpoint) => {
         const url = new URL(`https://api.themoviedb.org/3/${resolved.type}/${resolved.sourceId}/${endpoint}`);
         url.searchParams.set("api_key", key);
+        url.searchParams.set("page", String(page));
         const response = await fetch(url);
         if (!response.ok) throw new Error("Discovery feed failed. Try again.");
         const data = await response.json();
-        return (data.results || []).slice(0, 12).map((result) => mapTmdb(result, resolved.type));
+        return (data.results || []).map((result) => mapTmdb(result, resolved.type));
       })
     );
     return chunks.flat();
@@ -428,36 +434,74 @@ function levenshtein(a, b) {
 }
 
 async function refreshHome(force = false) {
-  if (state.homeLoading || (!force && state.homeResults.length)) return;
+  if (force) {
+    state.homeResults = [];
+    state.homePage = 0;
+    state.homeHasMore = true;
+    state.homeError = "";
+  }
+  if (!state.homeResults.length) await loadHomeResults(false);
+}
+
+async function loadHomeResults(append) {
+  if (state.homeLoading || (append && !state.homeHasMore)) return;
   const seeds = rankedSeeds().slice(0, 8);
   if (!seeds.length) {
-    if (state.homeResults.length || state.homeError) setState({ homeResults: [], homeError: "" });
+    setState({ homeResults: [], homeError: "", homeHasMore: false });
     return;
   }
-  setState({ homeLoading: true, homeError: "" });
+  const nextPage = append ? state.homePage + 1 : 1;
+  setState({ homeLoading: true, homeError: append ? state.homeError : "" });
   try {
     const seedWeights = new Map(seeds.map((seed, index) => [seed.id, seedWeight(seed) + (8 - index) * 4]));
-    const settled = await Promise.allSettled(seeds.map((seed) => TmdbApi.recommendations(seed).then((items) => ({ seed, items }))));
+    const settled = await Promise.allSettled(
+      seeds.map((seed) => TmdbApi.recommendations(seed, nextPage).then((items) => ({ seed, items })))
+    );
     const savedIds = new Set(state.items.map((item) => item.id));
+    const existingIds = new Set(append ? state.homeResults.map((item) => item.id) : []);
     const deduped = new Map();
     settled
       .flatMap((result) => (result.status === "fulfilled" ? result.value.items.map((item) => ({ item, seed: result.value.seed })) : []))
-      .filter(({ item }) => isUsefulRecommendation(item) && !savedIds.has(item.id))
+      .filter(({ item }) => isUsefulRecommendation(item) && !savedIds.has(item.id) && !existingIds.has(item.id))
       .forEach(({ item, seed }) => {
         const current = deduped.get(item.id) || { item, score: 0, hits: 0 };
         current.hits += 1;
         current.score += recommendationScore(item, seedWeights.get(seed.id) || 0);
         deduped.set(item.id, current);
       });
-    const homeResults = [...deduped.values()]
+    const batch = [...deduped.values()]
       .sort((a, b) => b.score + b.hits * 55 - (a.score + a.hits * 55))
-      .map((entry) => entry.item)
-      .slice(0, 18);
+      .map((entry) => entry.item);
     const firstError = settled.find((result) => result.status === "rejected")?.reason?.message;
-    setState({ homeResults, homeError: homeResults.length ? "" : firstError || "No recommendations yet.", homeLoading: false });
+    const next = append ? [...state.homeResults, ...batch] : batch;
+    setState({
+      homeResults: next,
+      homePage: nextPage,
+      homeHasMore: batch.length > 0 && nextPage < 8,
+      homeError: next.length ? "" : firstError || "No recommendations yet.",
+      homeLoading: false
+    });
   } catch (error) {
-    setState({ homeError: error.message, homeLoading: false });
+    setState({ homeError: error.message, homeLoading: false, homeHasMore: false });
   }
+}
+
+let homeObserver = null;
+function attachHomeObserver() {
+  homeObserver?.disconnect();
+  homeObserver = null;
+  if (state.tab !== "home") return;
+  const sentinel = app.querySelector("[data-home-sentinel]");
+  if (!sentinel) return;
+  homeObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries[0].isIntersecting && state.homeHasMore && !state.homeLoading) {
+        loadHomeResults(true);
+      }
+    },
+    { rootMargin: "400px 0px" }
+  );
+  homeObserver.observe(sentinel);
 }
 
 function rankedSeeds() {
@@ -497,7 +541,7 @@ function render() {
   app.innerHTML = `
     <main class="shell">
       ${state.tab === "home" ? homeView() : ""}
-      ${state.tab === "queue" ? queueView() : ""}
+      ${state.tab === "library" ? libraryView() : ""}
       ${state.tab === "search" ? searchView() : ""}
       ${state.tab === "settings" ? settingsView() : ""}
     </main>
@@ -507,28 +551,105 @@ function render() {
     ${state.editingListId ? listEditorSheet() : ""}
   `;
   bindEvents();
-  if (state.tab === "home") refreshHome();
+  if (state.tab === "home") {
+    refreshHome();
+    attachHomeObserver();
+  } else {
+    homeObserver?.disconnect();
+  }
 }
 
 function homeView() {
   const seeds = state.items.filter((item) => item.type === "movie" || item.type === "tv");
-  const hasLists = state.lists.length > 0;
-  const showDiscovery = state.settings.tmdbApiKey && seeds.length > 0;
-  const showEmpty = !hasLists && !seeds.length;
+  const needsKey = !state.settings.tmdbApiKey;
+  const needsSeeds = !needsKey && !seeds.length;
   return `
-    <section class="view home-view">
+    <section class="view">
       <header class="topbar">
         <div>
-          <p class="eyebrow">${state.items.length ? `${state.items.length} saved` : "Welcome"}</p>
+          <p class="eyebrow">Recommended</p>
           <h1>Home</h1>
         </div>
-        <button class="icon-button" data-action="refreshHome" aria-label="Refresh discovery">${icon("refresh")}</button>
+        <button class="icon-button" data-action="refreshHome" aria-label="Refresh recommendations">${icon("refresh")}</button>
       </header>
-      ${!state.settings.tmdbApiKey ? `<div class="notice">Discovery needs your TMDB API key. <button data-tab="settings">Add key</button></div>` : ""}
-      ${showEmpty ? emptyState("Start your library", "Add a movie or show from Search, then build curated lists and unlock recommendations.") : ""}
-      ${state.lists.map(listRail).join("")}
-      ${showDiscovery ? discoveryRail() : ""}
+      ${needsKey ? `<div class="notice">Recommendations need your TMDB API key. <button data-tab="settings">Add key</button></div>` : ""}
+      ${needsSeeds ? emptyState("Build your feed", "Add a movie or TV show to your library — Home will fill with picks based on your queue and ratings.") : ""}
+      ${state.homeError && !state.homeResults.length && !needsKey && !needsSeeds ? `<div class="notice">${escapeHtml(state.homeError)}</div>` : ""}
+      ${!needsKey && !needsSeeds ? `
+        <div class="recs-grid">
+          ${state.homeResults.map(recCard).join("")}
+          ${state.homeLoading ? recSkeletons(state.homeResults.length ? 6 : 12) : ""}
+        </div>
+        ${state.homeHasMore && state.homeResults.length ? `<div class="home-sentinel" data-home-sentinel aria-hidden="true"></div>` : ""}
+      ` : ""}
     </section>
+  `;
+}
+
+function recCard(item) {
+  return `
+    <button class="rec-card" data-preview-home="${escapeAttr(item.id)}" aria-label="${escapeAttr(item.title)}">
+      ${poster(item)}
+    </button>
+  `;
+}
+
+function recSkeletons(count) {
+  return Array.from({ length: count }, () => `<div class="rec-skeleton" aria-hidden="true"></div>`).join("");
+}
+
+function libraryView() {
+  const items = filteredItems();
+  return `
+    <section class="view">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">${state.items.length} saved</p>
+          <h1>Library</h1>
+        </div>
+        <button class="icon-button" data-action="pick" aria-label="Pick random title">${icon("shuffle")}</button>
+      </header>
+
+      <section class="lib-section">
+        <div class="section-head">
+          <h2>Lists</h2>
+          <button class="ghost-button" data-action="openNewList">${icon("plus")} New</button>
+        </div>
+        ${state.composingList ? newListComposer() : ""}
+        ${state.lists.length
+          ? state.lists.map(listRail).join("")
+          : `<p class="section-empty">Curated rows of titles. Tap any movie or show in Search or Queue to add it to a list.</p>`}
+      </section>
+
+      <section class="lib-section">
+        <div class="section-head">
+          <h2>Queue</h2>
+        </div>
+        <div class="field search-field">
+          ${icon("search")}
+          <input data-field="libraryQuery" value="${escapeAttr(state.libraryQuery)}" placeholder="Search saved titles" />
+        </div>
+        <details class="filter-drawer" data-filter-drawer="queueFiltersOpen" ${state.queueFiltersOpen ? "open" : ""}>
+          <summary>${icon("filter")} Filters <span>${queueFilterLabel()}</span></summary>
+          <div class="filter-stack">
+            <div class="chip-row">${chips("filterStatus", ["queued", "watching", "watched", "all"])}</div>
+            <div class="chip-row">${chips("filterType", ["all", "movie", "tv", "anime"])}</div>
+          </div>
+        </details>
+        <div class="queue-grid">
+          ${items.length ? items.map(queueCard).join("") : emptyState("No titles here", "Add something from Search or change filters.")}
+        </div>
+      </section>
+    </section>
+  `;
+}
+
+function newListComposer() {
+  return `
+    <div class="new-list-row">
+      <input data-new-list-name placeholder="List name" maxlength="80" autofocus />
+      <button class="secondary-button" data-action="commitNewList">Add</button>
+    </div>
   `;
 }
 
@@ -543,65 +664,17 @@ function listRail(list) {
         <button class="rail-edit" data-edit-list="${escapeAttr(list.id)}" aria-label="Edit list">${icon("more")}</button>
       </header>
       ${items.length
-        ? `<div class="rail-track">${items.map((item) => railCard(item, "library")).join("")}</div>`
+        ? `<div class="rail-track">${items.map((item) => railCard(item)).join("")}</div>`
         : `<p class="rail-empty">Empty list. Tap a title and add it here.</p>`}
     </section>
   `;
 }
 
-function discoveryRail() {
-  const body = state.homeLoading
-    ? `<div class="rail-skeleton">${"<div></div>".repeat(6)}</div>`
-    : state.homeError
-      ? `<p class="rail-empty">${escapeHtml(state.homeError)}</p>`
-      : state.homeResults.length
-        ? `<div class="rail-track">${state.homeResults.map((item) => railCard(item, "discovery")).join("")}</div>`
-        : `<p class="rail-empty">No recommendations yet.</p>`;
+function railCard(item) {
   return `
-    <section class="rail">
-      <header class="rail-head">
-        <h2>For you</h2>
-      </header>
-      ${body}
-    </section>
-  `;
-}
-
-function railCard(item, kind) {
-  const attr = kind === "discovery" ? `data-preview-home="${escapeAttr(item.id)}"` : `data-open="${escapeAttr(item.id)}"`;
-  return `
-    <button class="rail-card" ${attr} aria-label="${escapeAttr(item.title)}">
+    <button class="rail-card" data-open="${escapeAttr(item.id)}" aria-label="${escapeAttr(item.title)}">
       ${poster(item)}
     </button>
-  `;
-}
-
-function queueView() {
-  const items = filteredItems();
-  return `
-    <section class="view">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">${state.items.length} saved</p>
-          <h1>Keep</h1>
-        </div>
-        <button class="icon-button" data-action="pick" aria-label="Pick random title">${icon("shuffle")}</button>
-      </header>
-      <div class="field search-field">
-        ${icon("search")}
-        <input data-field="libraryQuery" value="${escapeAttr(state.libraryQuery)}" placeholder="Search your library" />
-      </div>
-      <details class="filter-drawer" data-filter-drawer="queueFiltersOpen" ${state.queueFiltersOpen ? "open" : ""}>
-        <summary>${icon("filter")} Filters <span>${queueFilterLabel()}</span></summary>
-        <div class="filter-stack">
-          <div class="chip-row">${chips("filterStatus", ["queued", "watching", "watched", "all"])}</div>
-          <div class="chip-row">${chips("filterType", ["all", "movie", "tv", "anime"])}</div>
-        </div>
-      </details>
-      <div class="queue-grid">
-        ${items.length ? items.map(queueCard).join("") : emptyState("No titles here", "Add something from Search or change filters.")}
-      </div>
-    </section>
   `;
 }
 
@@ -808,7 +881,7 @@ function tabBar() {
   return `
     <nav class="tabbar" aria-label="Main">
       ${tab("home", "home", "Home")}
-      ${tab("queue", "list", "Queue")}
+      ${tab("library", "list", "Library")}
       ${tab("search", "search", "Search")}
       ${tab("settings", "settings", "Settings")}
     </nav>
@@ -898,7 +971,7 @@ function bindEvents() {
       event.stopPropagation();
       const item = state.items.find((entry) => entry.id === button.dataset.quickStatus);
       if (!item) return;
-      if (state.tab === "queue") {
+      if (state.tab === "library") {
         deleteItem(item.id);
         return;
       }
@@ -926,6 +999,18 @@ function bindEvents() {
   });
   app.querySelector("[data-delete]")?.addEventListener("click", (event) => {
     if (confirm("Remove this title from Keep?")) deleteItem(event.currentTarget.dataset.delete);
+  });
+  app.querySelector("[data-action='openNewList']")?.addEventListener("click", () => setState({ composingList: !state.composingList }));
+  app.querySelector("[data-action='commitNewList']")?.addEventListener("click", () => {
+    const input = app.querySelector("[data-new-list-name]");
+    const list = createList(input?.value || "");
+    if (!list) {
+      toast("Name required");
+      return;
+    }
+    state.composingList = false;
+    toast(`Created ${list.name}`);
+    render();
   });
   app.querySelectorAll("[data-edit-list]").forEach((button) =>
     button.addEventListener("click", () => setState({ editingListId: button.dataset.editList }))
