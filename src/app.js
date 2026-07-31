@@ -2,6 +2,7 @@ const STORAGE_KEY = "keep.media.v1";
 const SETTINGS_KEY = "keep.settings.v1";
 const LISTS_KEY = "keep.lists.v1";
 const LANDING_KEY = "keep.landing.dismissed.v1";
+const TASTE_KEY = "keep.taste.v1";
 const TMDB_IMAGE = "https://image.tmdb.org/t/p/w342";
 const TAB_IDS = ["home", "library", "search", "settings"];
 const tabs = new Set(TAB_IDS);
@@ -88,6 +89,8 @@ const KeepStore = {
     }
     state.items = backup.items.map(normalizeItem);
     state.lists = Array.isArray(backup.lists) ? backup.lists.map(normalizeList) : [];
+    state.homeResults = [];
+    invalidateProfile();
     this.saveItems();
     this.saveLists();
   }
@@ -163,12 +166,38 @@ function normalizeItem(item) {
     popularity: Number(item.popularity || 0),
     voteAverage: Number(item.voteAverage || 0),
     voteCount: Number(item.voteCount || 0),
+    genreIds: Array.isArray(item.genreIds) ? item.genreIds.slice(0, 12).map(Number).filter(Number.isFinite) : [],
+    language: item.language || "",
     status: ["queued", "watching", "watched"].includes(item.status) ? item.status : "queued",
     reaction: ["love", "like", "dislike"].includes(item.reaction) ? item.reaction : null,
     notes: item.notes || "",
     createdAt: item.createdAt || stamped,
     updatedAt: item.updatedAt || stamped
   };
+}
+
+let tasteCache = safeParse(localStorage.getItem(TASTE_KEY), {});
+
+function saveTasteCache() {
+  try {
+    localStorage.setItem(TASTE_KEY, JSON.stringify(tasteCache));
+  } catch {
+    tasteCache = {};
+  }
+}
+
+async function mapPool(items, size, worker) {
+  const results = [];
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index]);
+    }
+  });
+  await Promise.all(runners);
+  return results;
 }
 
 const TmdbApi = {
@@ -195,19 +224,58 @@ const TmdbApi = {
     if (!key) throw new Error("Add a TMDB API key in Settings to build your discovery feed.");
     const resolved = seed.source === "tmdb" ? seed : await this.resolveSeed(seed);
     if (!resolved) return [];
-    const endpoints = ["recommendations", "similar"];
-    const chunks = await Promise.all(
-      endpoints.map(async (endpoint) => {
-        const url = new URL(`https://api.themoviedb.org/3/${resolved.type}/${resolved.sourceId}/${endpoint}`);
-        url.searchParams.set("api_key", key);
-        url.searchParams.set("page", String(page));
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("Discovery feed failed. Try again.");
-        const data = await response.json();
-        return (data.results || []).map((result) => mapTmdb(result, resolved.type));
-      })
-    );
-    return chunks.flat();
+    const url = new URL(`https://api.themoviedb.org/3/${resolved.type}/${resolved.sourceId}/recommendations`);
+    url.searchParams.set("api_key", key);
+    url.searchParams.set("page", String(page));
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Discovery feed failed. Try again.");
+    const data = await response.json();
+    return (data.results || []).map((result) => mapTmdb(result, resolved.type));
+  },
+  async discover(type, params, page = 1) {
+    const key = state.settings.tmdbApiKey.trim();
+    if (!key) throw new Error("Add a TMDB API key in Settings to build your discovery feed.");
+    const url = new URL(`https://api.themoviedb.org/3/discover/${type}`);
+    url.searchParams.set("api_key", key);
+    url.searchParams.set("include_adult", "false");
+    url.searchParams.set("page", String(page));
+    Object.entries(params).forEach(([name, value]) => url.searchParams.set(name, String(value)));
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Discovery feed failed. Try again.");
+    const data = await response.json();
+    return (data.results || []).map((result) => mapTmdb(result, type));
+  },
+  async metadata(item) {
+    if (item.source !== "tmdb" || (item.type !== "movie" && item.type !== "tv")) return null;
+    const cached = tasteCache[item.id];
+    if (cached) return cached;
+    const key = state.settings.tmdbApiKey.trim();
+    if (!key) return null;
+    const url = new URL(`https://api.themoviedb.org/3/${item.type}/${item.sourceId}`);
+    url.searchParams.set("api_key", key);
+    url.searchParams.set("append_to_response", "keywords,credits");
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const rawKeywords = data.keywords?.keywords || data.keywords?.results || [];
+    const crew = data.credits?.crew || [];
+    const authors = crew
+      .filter((person) => person.job === "Director" || person.job === "Screenplay" || person.job === "Writer" || person.job === "Creator")
+      .map((person) => person.id);
+    const date = data.release_date || data.first_air_date || "";
+    const entry = {
+      genres: (data.genres || []).map((genre) => genre.id),
+      keywords: rawKeywords.map((keyword) => keyword.id).slice(0, 30),
+      authors: [...new Set(authors)].slice(0, 4),
+      cast: (data.credits?.cast || []).slice(0, 6).map((person) => person.id),
+      decade: date ? Math.floor(Number(date.slice(0, 4)) / 10) * 10 : 0,
+      language: data.original_language || "",
+      popularity: Number(data.popularity || 0),
+      voteAverage: Number(data.vote_average || 0)
+    };
+    tasteCache[item.id] = entry;
+    saveTasteCache();
+    return entry;
   },
   async resolveSeed(seed) {
     if (seed.source === "tmdb") return seed;
@@ -245,6 +313,8 @@ function mapTmdb(result, type) {
     popularity: result.popularity || 0,
     voteAverage: result.vote_average || 0,
     voteCount: result.vote_count || 0,
+    genreIds: result.genre_ids || (result.genres || []).map((genre) => genre.id),
+    language: result.original_language || "",
     status: "queued"
   });
 }
@@ -309,6 +379,7 @@ function addOrUpdate(item, patch = {}) {
     toast("Added to queue");
   }
   state.homeResults = [];
+  invalidateProfile();
   KeepStore.saveItems();
   render();
 }
@@ -335,6 +406,7 @@ function deleteItem(id) {
   state.lists = state.lists.map((list) => ({ ...list, itemIds: list.itemIds.filter((itemId) => itemId !== id) }));
   state.selected = null;
   state.homeResults = [];
+  invalidateProfile();
   KeepStore.saveItems();
   KeepStore.saveLists();
   toast("Removed");
@@ -350,16 +422,36 @@ function filteredItems() {
   });
 }
 
-async function runSearch(event) {
-  event?.preventDefault();
+const SEARCH_DEBOUNCE_MS = 280;
+let searchTimer = 0;
+let searchToken = 0;
+
+// Search runs on every keystroke now, so each request carries a token; only the
+// newest one is allowed to write results back.
+function scheduleSearch({ immediate = false } = {}) {
+  window.clearTimeout(searchTimer);
+  const query = state.searchQuery.trim();
+  if (!query) {
+    searchToken += 1;
+    setState({ searchResults: [], searchError: "", searchLoading: false });
+    return;
+  }
+  if (query.length < 2) return;
+  searchTimer = window.setTimeout(runSearch, immediate ? 0 : SEARCH_DEBOUNCE_MS);
+}
+
+async function runSearch() {
   const query = state.searchQuery.trim();
   if (!query) return;
+  searchToken += 1;
+  const token = searchToken;
   setState({ searchLoading: true, searchError: "", searchResults: [] });
   try {
     const searches = [];
     if (state.searchType !== "anime") searches.push(TmdbApi.search(query, state.searchType));
     if (state.searchType === "anime") searches.push(JikanApi.search(query));
     const settled = await Promise.allSettled(searches);
+    if (token !== searchToken) return;
     const results = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
     const errors = settled.filter((result) => result.status === "rejected");
     setState({
@@ -368,8 +460,16 @@ async function runSearch(event) {
       searchLoading: false
     });
   } catch (error) {
+    if (token !== searchToken) return;
     setState({ searchError: error.message, searchLoading: false });
   }
+}
+
+const LIBRARY_DEBOUNCE_MS = 140;
+let libraryTimer = 0;
+function scheduleLibraryFilter() {
+  window.clearTimeout(libraryTimer);
+  libraryTimer = window.setTimeout(render, LIBRARY_DEBOUNCE_MS);
 }
 
 function rankResults(results, query) {
@@ -450,6 +550,7 @@ function levenshtein(a, b) {
 async function refreshHome(force = false) {
   if (force) {
     state.homeResults = [];
+    invalidateProfile();
     state.homePage = 0;
     state.homeHasMore = true;
     state.homeError = "";
@@ -459,45 +560,303 @@ async function refreshHome(force = false) {
 
 async function loadHomeResults(append) {
   if (state.homeLoading || (append && !state.homeHasMore)) return;
-  const seeds = rankedSeeds().slice(0, 8);
-  if (!seeds.length) {
+  if (!rankedSeeds().length) {
     setState({ homeResults: [], homeError: "", homeHasMore: false });
     return;
   }
   const nextPage = append ? state.homePage + 1 : 1;
   setState({ homeLoading: true, homeError: append ? state.homeError : "" });
   try {
-    const seedWeights = new Map(seeds.map((seed, index) => [seed.id, seedWeight(seed) + (8 - index) * 4]));
-    const settled = await Promise.allSettled(
-      seeds.map((seed) => TmdbApi.recommendations(seed, nextPage).then((items) => ({ seed, items })))
-    );
+    const profile = await tasteProfile();
+    if (!profile) {
+      setState({ homeResults: [], homeError: "", homeHasMore: false, homeLoading: false });
+      return;
+    }
+    const { entries, error } = await gatherCandidates(profile, nextPage);
     const savedIds = new Set(state.items.map((item) => item.id));
+    const savedTitles = new Set(state.items.map((item) => compactText(item.title)));
     const existingIds = new Set(append ? state.homeResults.map((item) => item.id) : []);
-    const deduped = new Map();
-    settled
-      .flatMap((result) => (result.status === "fulfilled" ? result.value.items.map((item) => ({ item, seed: result.value.seed })) : []))
-      .filter(({ item }) => isUsefulRecommendation(item) && !savedIds.has(item.id) && !existingIds.has(item.id))
-      .forEach(({ item, seed }) => {
-        const current = deduped.get(item.id) || { item, score: 0, hits: 0 };
-        current.hits += 1;
-        current.score += recommendationScore(item, seedWeights.get(seed.id) || 0);
-        deduped.set(item.id, current);
-      });
-    const batch = [...deduped.values()]
-      .sort((a, b) => b.score + b.hits * 55 - (a.score + a.hits * 55))
-      .map((entry) => entry.item);
-    const firstError = settled.find((result) => result.status === "rejected")?.reason?.message;
+    const ranked = entries
+      .filter((entry) => !savedIds.has(entry.item.id) && !existingIds.has(entry.item.id) && !savedTitles.has(compactText(entry.item.title)))
+      .filter((entry) => isUsefulRecommendation(entry.item))
+      .map((entry) => ({ ...entry, score: candidateScore(entry, profile) }))
+      .sort((a, b) => b.score - a.score);
+    const batch = diversify(ranked).map((entry) => entry.item);
     const next = append ? [...state.homeResults, ...batch] : batch;
     setState({
       homeResults: next,
       homePage: nextPage,
-      homeHasMore: batch.length > 0 && nextPage < 8,
-      homeError: next.length ? "" : firstError || "No recommendations yet.",
+      homeHasMore: batch.length > 0 && nextPage < 6,
+      homeError: next.length ? "" : error || "No recommendations yet.",
       homeLoading: false
     });
   } catch (error) {
     setState({ homeError: error.message, homeLoading: false, homeHasMore: false });
   }
+}
+
+let cachedProfile = null;
+let cachedProfilePromise = null;
+
+function invalidateProfile() {
+  cachedProfile = null;
+  cachedProfilePromise = null;
+}
+
+function tasteProfile() {
+  if (cachedProfile) return Promise.resolve(cachedProfile);
+  if (!cachedProfilePromise) {
+    cachedProfilePromise = buildTasteProfile()
+      .then((profile) => {
+        cachedProfile = profile;
+        return profile;
+      })
+      .finally(() => {
+        cachedProfilePromise = null;
+      });
+  }
+  return cachedProfilePromise;
+}
+
+// Reads the library's TMDB metadata (genres, keywords, directors, decade, language)
+// and turns it into weighted preference maps. Recommendations are scored against
+// this profile instead of against raw popularity.
+async function buildTasteProfile() {
+  const library = rankedSeeds().filter((item) => item.source === "tmdb");
+  if (!library.length) return null;
+  const sample = library.slice(0, 40);
+  const pairs = await mapPool(sample, 6, async (item) => ({
+    item,
+    meta: await TmdbApi.metadata(item).catch(() => null)
+  }));
+  const withMeta = pairs.filter((pair) => pair.meta);
+  if (!withMeta.length) return null;
+
+  const genres = new Map();
+  const keywords = new Map();
+  const people = new Map();
+  const decades = new Map();
+  const languages = new Map();
+  const avoidGenres = new Map();
+  const avoidKeywords = new Set();
+  const popularities = [];
+  let tvWeight = 0;
+  let totalWeight = 0;
+
+  const bump = (map, key, amount) => {
+    if (key === undefined || key === null || key === "") return;
+    map.set(key, (map.get(key) || 0) + amount);
+  };
+
+  withMeta.forEach(({ item, meta }) => {
+    const weight = tasteWeight(item);
+    if (weight < 0) {
+      meta.genres.forEach((id) => bump(avoidGenres, id, -weight));
+      meta.keywords.forEach((id) => avoidKeywords.add(id));
+      return;
+    }
+    totalWeight += weight;
+    if (item.type === "tv") tvWeight += weight;
+    popularities.push(Number(meta.popularity || item.popularity || 0));
+    meta.genres.forEach((id) => bump(genres, id, weight));
+    // Keywords are the sharpest taste signal TMDB exposes — "neo-noir", "cyberpunk",
+    // "coming of age" separate this library from the blockbusters that share its genres.
+    meta.keywords.forEach((id, index) => bump(keywords, id, weight * (index < 10 ? 1 : 0.5)));
+    meta.authors.forEach((id) => bump(people, id, weight * 1.6));
+    meta.cast.forEach((id, index) => bump(people, id, weight * (index < 3 ? 0.7 : 0.35)));
+    bump(decades, meta.decade, weight);
+    bump(languages, meta.language, weight);
+  });
+
+  if (!totalWeight) return null;
+
+  return {
+    genres: normalizeMap(genres),
+    keywords: normalizeMap(keywords),
+    people: normalizeMap(people),
+    decades: normalizeMap(decades),
+    languages: normalizeMap(languages),
+    avoidGenres: normalizeMap(avoidGenres),
+    avoidKeywords,
+    keywordClusters: clusterKeywords(keywords),
+    popularityAnchor: median(popularities),
+    tvShare: tvWeight / totalWeight,
+    seeds: library.slice(0, 10)
+  };
+}
+
+function tasteWeight(item) {
+  const reaction = { love: 3, like: 2, dislike: -2 }[item.reaction] ?? 1;
+  if (reaction < 0) return reaction;
+  const status = { watched: 1.25, watching: 1.15, queued: 1 }[item.status] || 1;
+  return reaction * status;
+}
+
+function normalizeMap(map) {
+  const max = Math.max(...map.values(), 0);
+  if (!max) return new Map();
+  return new Map([...map.entries()].map(([key, value]) => [key, value / max]));
+}
+
+function median(values) {
+  if (!values.length) return 10;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function topKeys(map, count) {
+  return [...map.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, count)
+    .map(([key]) => key);
+}
+
+// Groups the strongest keywords into OR-queries so /discover returns titles that
+// share several signature traits rather than one broad genre.
+function clusterKeywords(keywords) {
+  const ranked = [...keywords.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const clusters = [];
+  for (let index = 0; index < ranked.length; index += 3) {
+    const slice = ranked.slice(index, index + 3);
+    if (!slice.length) break;
+    clusters.push({
+      ids: slice.map(([id]) => id),
+      weight: slice.reduce((sum, [, value]) => sum + value, 0) / slice.length
+    });
+  }
+  return clusters;
+}
+
+// Candidates come from four generators. Each one stamps the candidate with the
+// weight of the signal that produced it, so provenance survives into scoring.
+async function gatherCandidates(profile, page) {
+  const requests = [];
+  const wantsTv = profile.tvShare > 0.15;
+  const avoid = topKeys(profile.avoidGenres, 3).join(",");
+  const baseParams = { "vote_count.gte": 60, "vote_average.gte": 5.8 };
+  if (avoid) baseParams.without_genres = avoid;
+
+  profile.keywordClusters.forEach((cluster, index) => {
+    requests.push({
+      source: `keyword:${cluster.ids.join("|")}`,
+      weight: 220 * cluster.weight,
+      run: () =>
+        TmdbApi.discover(
+          index % 2 === 0 || !wantsTv ? "movie" : "tv",
+          { ...baseParams, with_keywords: cluster.ids.join("|"), sort_by: "vote_average.desc", "vote_count.gte": 120 },
+          page
+        )
+    });
+  });
+
+  const topGenres = topKeys(profile.genres, 4);
+  if (topGenres.length >= 2) {
+    requests.push({
+      source: `genres:${topGenres[0]},${topGenres[1]}`,
+      weight: 120,
+      run: () => TmdbApi.discover("movie", { ...baseParams, with_genres: `${topGenres[0]},${topGenres[1]}`, sort_by: "vote_average.desc", "vote_count.gte": 150 }, page)
+    });
+  }
+  if (topGenres.length) {
+    requests.push({
+      source: `genres:${topGenres.join("|")}`,
+      weight: 80,
+      run: () => TmdbApi.discover(wantsTv ? "tv" : "movie", { ...baseParams, with_genres: topGenres.join("|"), sort_by: "popularity.desc" }, page)
+    });
+  }
+
+  const topPeople = topKeys(profile.people, 4);
+  if (topPeople.length) {
+    requests.push({
+      source: `people:${topPeople.join("|")}`,
+      weight: 200,
+      run: () => TmdbApi.discover("movie", { ...baseParams, with_people: topPeople.join("|"), sort_by: "vote_average.desc", "vote_count.gte": 40 }, page)
+    });
+  }
+
+  // TMDB's per-title /recommendations is co-save behaviour, not taste — useful on the
+  // first pages, pure noise deeper in, so it is capped and weighted below discovery.
+  if (page <= 2) {
+    profile.seeds.forEach((seed, index) => {
+      requests.push({
+        source: `seed:${seed.id}`,
+        weight: 90 + (10 - index) * 6,
+        run: () => TmdbApi.recommendations(seed, page)
+      });
+    });
+  }
+
+  const settled = await Promise.allSettled(requests.map((request) => request.run().then((items) => ({ request, items }))));
+  const entries = new Map();
+  settled.forEach((result) => {
+    if (result.status !== "fulfilled") return;
+    const { request, items } = result.value;
+    items.forEach((item, index) => {
+      const rankDecay = 1 - Math.min(index, 19) / 28;
+      const current = entries.get(item.id) || { item, provenance: 0, sources: new Set(), primarySource: request.source, best: 0 };
+      current.provenance += request.weight * rankDecay;
+      current.sources.add(request.source);
+      if (request.weight > current.best) {
+        current.best = request.weight;
+        current.primarySource = request.source;
+      }
+      entries.set(item.id, current);
+    });
+  });
+  const error = settled.find((result) => result.status === "rejected")?.reason?.message || "";
+  return { entries: [...entries.values()], error };
+}
+
+function candidateScore(entry, profile) {
+  const item = entry.item;
+  let score = entry.provenance;
+  // Turning up from two independent signals is the strongest evidence available.
+  if (entry.sources.size > 1) score += (entry.sources.size - 1) * 70;
+  score += affinity(item.genreIds, profile.genres) * 150;
+  score -= affinity(item.genreIds, profile.avoidGenres) * 240;
+  score += (profile.languages.get(item.language) || 0) * 50;
+  const decade = item.year ? Math.floor(Number(item.year) / 10) * 10 : 0;
+  score += (profile.decades.get(decade) || 0) * 55;
+  const votes = Number(item.voteCount || 0);
+  if (votes >= 60) score += (Number(item.voteAverage || 0) - 6.2) * 24;
+  score += popularityFit(item.popularity, profile.popularityAnchor);
+  return score;
+}
+
+function affinity(genreIds, map) {
+  if (!genreIds?.length || !map.size) return 0;
+  const total = genreIds.reduce((sum, id) => sum + (map.get(id) || 0), 0);
+  return total / genreIds.length;
+}
+
+// The core correction. A library of obscure titles should not be answered with
+// blockbusters, so distance from the library's own popularity band is a penalty —
+// asymmetric, because "too mainstream" is the failure mode being fixed.
+function popularityFit(popularity, anchor) {
+  const value = Math.log10(Math.max(Number(popularity) || 0, 0.5) + 1);
+  const target = Math.log10(Math.max(Number(anchor) || 0, 0.5) + 1);
+  const delta = value - target;
+  if (delta > 0) return -Math.min(delta, 1.6) * 150;
+  return -Math.min(-delta, 1.6) * 55;
+}
+
+// Keeps one loud seed or one genre from swallowing the grid. This is a decay rather
+// than a hard cap: a repeated source is nudged down, never demoted below a title the
+// profile scored far lower. Entries must already be sorted by score.
+function diversify(entries) {
+  const perSource = new Map();
+  const perGenre = new Map();
+  return entries
+    .map((entry) => {
+      const genre = entry.item.genreIds?.[0] ?? "none";
+      const sourceCount = perSource.get(entry.primarySource) || 0;
+      const genreCount = perGenre.get(genre) || 0;
+      perSource.set(entry.primarySource, sourceCount + 1);
+      perGenre.set(genre, genreCount + 1);
+      return { ...entry, score: entry.score - sourceCount * 20 - genreCount * 12 };
+    })
+    .sort((a, b) => b.score - a.score);
 }
 
 let homeObserver = null;
@@ -520,25 +879,24 @@ function attachHomeObserver() {
 
 function rankedSeeds() {
   return state.items
-    .filter((item) => item.type === "movie" || item.type === "tv")
+    .filter((item) => (item.type === "movie" || item.type === "tv") && item.reaction !== "dislike")
     .sort((a, b) => seedWeight(b) - seedWeight(a) || new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
+// Popularity used to rank seeds too, which meant the feed was grown from the most
+// mainstream saves. Ranking is now reaction, status, then recency.
 function seedWeight(item) {
-  const reaction = { love: 70, like: 45, dislike: -80 }[item.reaction] || 0;
-  const status = { watched: 35, watching: 28, queued: 8 }[item.status] || 0;
-  return reaction + status + Math.min(Number(item.popularity || 0), 35);
+  const reaction = { love: 70, like: 45 }[item.reaction] || 0;
+  const status = { watched: 35, watching: 28, queued: 12 }[item.status] || 0;
+  return reaction + status;
 }
 
 function isUsefulRecommendation(item) {
   if (!item.posterUrl || !item.overview) return false;
-  if (Number(item.voteCount || 0) && Number(item.voteCount || 0) < 25) return false;
-  if (Number(item.voteAverage || 0) && Number(item.voteAverage || 0) < 5.2) return false;
-  return Number(item.popularity || 0) >= 2;
-}
-
-function recommendationScore(item, seed) {
-  return seed + Math.min(Number(item.popularity || 0), 90) + Math.min(Number(item.voteCount || 0) / 20, 55) + Number(item.voteAverage || 0) * 8;
+  // Unrated titles used to slip through; they are the bulk of /discover's tail.
+  if (Number(item.voteCount || 0) < 40) return false;
+  if (Number(item.voteAverage || 0) < 5.6) return false;
+  return Number(item.popularity || 0) >= 0.4;
 }
 
 function randomPick() {
@@ -553,7 +911,28 @@ function randomPick() {
 
 const animTracker = { tab: null, selectedId: null, pickId: null, editingListId: null, landing: null };
 
+// innerHTML swaps destroy the focused input, which would drop the keyboard on every
+// keystroke now that search is live. Capture the caret before, restore it after.
+function captureFocus() {
+  const element = document.activeElement;
+  if (!element || !app.contains(element) || !element.dataset?.field) return null;
+  return { field: element.dataset.field, start: element.selectionStart, end: element.selectionEnd };
+}
+
+function restoreFocus(snapshot) {
+  if (!snapshot) return;
+  const element = app.querySelector(`[data-field="${CSS.escape(snapshot.field)}"]`);
+  if (!element) return;
+  element.focus({ preventScroll: true });
+  try {
+    element.setSelectionRange(snapshot.start, snapshot.end);
+  } catch {
+    /* selection ranges are unsupported on some input types */
+  }
+}
+
 function render() {
+  const focus = captureFocus();
   if (state.showLanding) {
     app.innerHTML = landingView();
     bindLandingEvents();
@@ -574,6 +953,7 @@ function render() {
     ${state.editingListId ? listEditorSheet() : ""}
   `;
   bindEvents();
+  restoreFocus(focus);
   runEnterAnimations();
   if (state.tab === "home") {
     refreshHome();
@@ -814,13 +1194,22 @@ function searchView() {
           <h1>Search</h1>
         </div>
       </header>
-      <form class="search-form" data-action="search">
-        <div class="field search-field">
-          ${icon("search")}
-          <input data-field="searchQuery" value="${escapeAttr(state.searchQuery)}" placeholder="Movie or show" />
-        </div>
-        <button class="primary-button" type="submit">Search</button>
-      </form>
+      <div class="field search-field">
+        ${icon("search")}
+        <input
+          data-field="searchQuery"
+          value="${escapeAttr(state.searchQuery)}"
+          placeholder="Movie or show"
+          type="search"
+          autocomplete="off"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          enterkeyhint="search"
+          aria-label="Search movies and shows"
+        />
+        <button class="field-clear ${state.searchQuery ? "" : "is-hidden"}" data-action="clearSearch" aria-label="Clear search">${icon("close")}</button>
+      </div>
       <details class="filter-drawer" data-filter-drawer="searchFiltersOpen" ${state.searchFiltersOpen ? "open" : ""}>
         <summary>${icon("filter")} Filters <span>${searchFilterLabel()}</span></summary>
         <div class="chip-row">${chips("searchType", ["all", "movie", "tv", "anime"])}</div>
@@ -907,7 +1296,6 @@ function queueCard(item) {
       <div class="queue-card-body">
         <div class="media-title">${escapeHtml(item.title)}</div>
       </div>
-      <button class="ghost-icon queue-status" data-quick-status="${escapeAttr(item.id)}" aria-label="Cycle status">${icon("check")}</button>
     </article>
   `;
 }
@@ -1090,13 +1478,31 @@ function bindEvents() {
       if (field === "tmdbApiKey") {
         state.settings.tmdbApiKey = input.value.trim();
         state.homeResults = [];
+        invalidateProfile();
         KeepStore.saveSettings();
       } else {
         state[field] = input.value;
+        if (field === "searchQuery") {
+          app.querySelector("[data-action='clearSearch']")?.classList.toggle("is-hidden", !input.value);
+          scheduleSearch();
+        }
+        if (field === "libraryQuery") scheduleLibraryFilter();
       }
     });
+    if (input.dataset.field === "searchQuery") {
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          scheduleSearch({ immediate: true });
+        }
+      });
+      input.addEventListener("search", () => scheduleSearch({ immediate: true }));
+    }
   });
-  app.querySelector('[data-action="search"]')?.addEventListener("submit", runSearch);
+  app.querySelector("[data-action='clearSearch']")?.addEventListener("click", () => {
+    state.searchQuery = "";
+    scheduleSearch();
+  });
   app.querySelector("[data-action='refreshHome']")?.addEventListener("click", () => refreshHome(true));
   app.querySelectorAll("[data-add]").forEach((button) => button.addEventListener("click", () => addFromSearch(state.searchResults.find((item) => item.id === button.dataset.add))));
   app.querySelectorAll("[data-add-home]").forEach((button) => button.addEventListener("click", () => addOrUpdate(state.homeResults.find((item) => item.id === button.dataset.addHome))));
@@ -1106,19 +1512,6 @@ function bindEvents() {
   app.querySelectorAll("[data-action='close']").forEach((el) => el.addEventListener("click", () => setState({ selected: null })));
   app.querySelectorAll("[data-action='closePick']").forEach((el) => el.addEventListener("click", () => setState({ pick: null })));
   app.querySelectorAll("[data-action='pick']").forEach((el) => el.addEventListener("click", randomPick));
-  app.querySelectorAll("[data-quick-status]").forEach((button) =>
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const item = state.items.find((entry) => entry.id === button.dataset.quickStatus);
-      if (!item) return;
-      if (state.tab === "library") {
-        deleteItem(item.id);
-        return;
-      }
-      const next = item.status === "queued" ? "watching" : item.status === "watching" ? "watched" : "queued";
-      updateItem(item.id, { status: next });
-    })
-  );
   app.querySelectorAll("[data-segment]").forEach((button) =>
     button.addEventListener("click", () => {
       const field = button.dataset.segmentField;
@@ -1198,6 +1591,10 @@ function bindEvents() {
     if (confirm("Clear all saved titles and lists from this browser?")) {
       state.items = [];
       state.lists = [];
+      state.homeResults = [];
+      tasteCache = {};
+      saveTasteCache();
+      invalidateProfile();
       KeepStore.saveItems();
       KeepStore.saveLists();
       toast("Library cleared");
@@ -1251,6 +1648,7 @@ async function importPastedList() {
   }
   state.items = [...additions, ...state.items];
   state.homeResults = [];
+  invalidateProfile();
   KeepStore.saveItems();
   if (textarea) textarea.value = "";
   toast(missed.length ? `Added ${additions.length}, missed ${missed.length}` : `Added ${additions.length}`);
@@ -1354,6 +1752,7 @@ function icon(name) {
     ,key: '<svg viewBox="0 0 24 24"><circle cx="7.5" cy="14.5" r="4.5"/><path d="M11 11 21 1"/><path d="m16 6 2 2"/><path d="m14 8 2 2"/></svg>'
     ,more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>'
     ,trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7v13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7"/><path d="M10 11v6M14 11v6"/></svg>'
+    ,close: '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>'
   };
   return icons[name] || "";
 }

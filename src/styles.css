@@ -346,11 +346,37 @@ h2 {
   margin-bottom: 12px;
 }
 
-.search-form {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items: start;
+.field input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+}
+
+.field-clear {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin-right: -4px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--ink) 10%, transparent);
+  color: var(--ink);
+  opacity: 0.75;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.field-clear svg {
+  width: 14px;
+  height: 14px;
+}
+
+.field-clear:active {
+  transform: scale(0.92);
+}
+
+.field-clear.is-hidden {
+  visibility: hidden;
+  opacity: 0;
 }
 
 .chip-row {
@@ -718,23 +744,6 @@ h2 {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   white-space: normal;
-}
-
-.queue-status {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 3;
-  min-width: 32px;
-  min-height: 32px;
-  border-color: color-mix(in oklch, var(--surface), transparent 30%);
-  background: color-mix(in oklch, var(--surface) 78%, transparent);
-  backdrop-filter: blur(16px);
-}
-
-.queue-status svg {
-  width: 16px;
-  height: 16px;
 }
 
 .list-pills {
@@ -1230,14 +1239,6 @@ textarea {
 
   .rail-card {
     flex-basis: 88px;
-  }
-
-  .search-form {
-    grid-template-columns: 1fr;
-  }
-
-  .search-form .primary-button {
-    width: 100%;
   }
 
   h1 {
